@@ -14,6 +14,11 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 static int in_string = 0;
 static size_t string_start = 0;
 
+void reset_string_mode(void) {
+	in_string = 0;
+	string_start = 0;
+}
+
 int foundspace(const char *buf, size_t len, char c) {
     if (in_string) return 0;
 
@@ -79,6 +84,7 @@ int main(void) {
     linenoiseSetCharacterCallback(foundhelp, '?');
 
     while((line = linenoise("hello> ")) != NULL) {
+		reset_string_mode();
         if (line[0] != '\0') {
             printf("echo: '%s'\n", line);
             linenoiseHistoryAdd(line);
