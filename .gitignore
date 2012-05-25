@@ -5,3 +5,6 @@ linenoise_utf8_example
 *.o
 *~
 *.dSYM
+
+*.bak
+*.user
