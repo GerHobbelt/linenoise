@@ -962,10 +962,10 @@ static int linenoisePrompt(struct current *current) {
             c = completeLine(current);
             /* Return on errors */
             if (c < 0) return current->len;
-            /* Read next character when 0 */
-            if (c == 0) continue;
         }
 #endif
+		/* Read next character when 0 */
+		if (c == 0) continue;
 
 process_char:
         if (c == -1) return current->len;
