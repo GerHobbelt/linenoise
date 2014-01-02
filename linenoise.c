@@ -108,10 +108,24 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <locale.h>
 #include "linenoise.h"
+
+typedef struct linenoiseSingleCompletion {
+    char *text;
+    size_t pos;
+} linenoiseSingleCompletion;
+
+struct linenoiseCompletions {
+  size_t len;
+  size_t max_strlen;
+  linenoiseSingleCompletion *cvec;
+};
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_LINE_INIT_MAX_AND_GROW 4096
+#define LINENOISE_COL_SPACING 2
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 static char *unsupported_term[] = {"dumb","cons25",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 
@@ -142,7 +156,8 @@ struct linenoiseState {
     size_t cols;        /* Number of columns in terminal. */
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
     int history_index;  /* The history index we are currently editing. */
-    bool needsRefresh;    /* True when the lines need to be refreshed. */
+    bool needs_refresh; /* True when the lines need to be refreshed. */
+    bool is_displayed;  /* True when the prompt has been displayed. */
     enum LinenoiseState state;    /* Internal state. */
 };
 
@@ -153,6 +168,7 @@ static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
 static int initialize(const char *prompt);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
+static int prepareCustomOutput(struct linenoiseState *l);
 
 enum SpecialCharacters
 {
@@ -250,9 +266,15 @@ static int linenoiseBeep(void) {
 static void freeCompletions(linenoiseCompletions *lc) {
     size_t i;
     for (i = 0; i < lc->len; i++)
-        free(lc->cvec[i]);
-    if (lc->cvec != NULL)
-        free(lc->cvec);
+        free(lc->cvec[i].text);
+    free(lc->cvec);
+}
+
+static int completitionCompare(const void *first, const void *second)
+{
+    linenoiseSingleCompletion *firstcomp = (linenoiseSingleCompletion *) first;
+    linenoiseSingleCompletion *secondcomp = (linenoiseSingleCompletion *) second;
+    return (strcoll(firstcomp->text, secondcomp->text));
 }
 
 /* This is an helper function for linenoiseEdit() and is called when the
@@ -262,62 +284,48 @@ static void freeCompletions(linenoiseCompletions *lc) {
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
 static int completeLine(struct linenoiseState *ls) {
-    linenoiseCompletions lc = { 0, NULL };
-    int nread, nwritten;
+    linenoiseCompletions lc = { 0, 0, NULL };
     char c = 0;
 
-    completionCallback(ls->buf,&lc);
-    if (lc.len == 0) {
-        if (linenoiseBeep() == -1) goto err_cleanup;;
+    completionCallback(ls->buf, ls->pos, &lc);
+
+    if (lc.len > 0 && lc.cvec == NULL) {
+        errno = ENOMEM;
+        return -1;
+    } else if (lc.len == 0) {
+        if (linenoiseBeep() == -1) goto err_cleanup;
+    } else if (lc.len == 1) {
+        // Simple case
+        size_t new_strlen = strlen(lc.cvec[0].text);
+        if (ensureBufLen(ls, new_strlen) == -1) return -1;
+
+        memcpy(ls->buf, lc.cvec[0].text, new_strlen+1);
+        ls->pos = MIN(new_strlen, lc.cvec[0].pos);
+        ls->len = new_strlen;
+        if (refreshLine(ls) == -1) goto err_cleanup;
     } else {
-        size_t stop = 0, i = 0;
+        // Multiple choices - sort them and print
+        if (prepareCustomOutput(ls) == -1) return -1;
 
-        while(!stop) {
-            /* Show completion or original buffer */
-            if (i < lc.len) {
-                struct linenoiseState saved = *ls;
+        qsort(lc.cvec, lc.len, sizeof(linenoiseSingleCompletion), completitionCompare);
+        size_t colSize = lc.max_strlen + LINENOISE_COL_SPACING;
+        size_t cols = ls->cols / colSize;
+        if (cols == 0)
+            cols = 1;
+        size_t rows = (lc.len + cols - 1) / cols;
+        size_t i;
 
-                ls->len = ls->pos = strlen(lc.cvec[i]);
-                ls->buf = lc.cvec[i];
-                int result = refreshLine(ls);
-                ls->len = saved.len;
-                ls->pos = saved.pos;
-                ls->buf = saved.buf;
-                if (result == -1) goto err_cleanup;;
-            } else {
-                if (refreshLine(ls) == -1) goto err_cleanup;;
-            }
-
-            nread = read(ls->fd,&c,1);
-            if (nread <= 0) {
-                freeCompletions(&lc);
-                return -1;
-            }
-
-            switch(c) {
-                case 9: /* tab */
-                    i = (i+1) % (lc.len+1);
-                    if (i == lc.len)
-                        if (linenoiseBeep() == -1) goto err_cleanup;
-                    break;
-                case 27: /* escape */
-                    /* Re-show original buffer */
-                    if (i < lc.len)
-                        if (refreshLine(ls) == -1) goto err_cleanup;
-                    stop = 1;
-                    break;
-                default:
-                    /* Update buffer and return */
-                    if (i < lc.len) {
-                        size_t new_strlen = strlen(lc.cvec[i]);
-                        if (ensureBufLen(ls, new_strlen) == -1) return -1;
-                        memcpy(ls->buf, lc.cvec[i], new_strlen+1);
-                        ls->len = ls->pos = new_strlen;
-                    }
-                    stop = 1;
-                    break;
-            }
+        for (i = 0; i < lc.len; i++)
+        {
+            size_t real_index = (i % cols) * rows + i / cols;
+            if (real_index < lc.len)
+                printf("%-*s", (int)colSize, lc.cvec[real_index].text);
+            if ((i % cols) == (cols - 1))
+                printf("\r\n");
         }
+        if ((i % cols) != 0)
+            printf("\r\n");
+        if (refreshLine(ls) == -1) return -1;
     }
 
     freeCompletions(&lc);
@@ -337,12 +345,24 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
-void linenoiseAddCompletion(linenoiseCompletions *lc, char *str) {
+void linenoiseAddCompletion(linenoiseCompletions *lc, char *str, size_t pos) {
     size_t len = strlen(str);
     char *copy = malloc(len+1);
     memcpy(copy,str,len+1);
-    lc->cvec = realloc(lc->cvec,sizeof(char*)*(lc->len+1));
-    lc->cvec[lc->len++] = copy;
+    if (lc->len == 0 || lc->cvec != NULL) {
+        linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
+        if (newcvec != NULL) {
+            lc->cvec = newcvec;
+            lc->cvec[lc->len].text = copy;
+            lc->cvec[lc->len].pos = pos;
+        } else {
+            free(lc->cvec);
+            lc->cvec = NULL;
+        }
+    }
+    if (len > lc->max_strlen)
+        lc->max_strlen = len;
+    lc->len++;
 }
 
 /* =========================== Line editing ================================= */
@@ -353,7 +373,7 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, char *str) {
  * cursor position, and number of columns of the terminal. */
 static int refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen = strlen(l->prompt);
+    size_t plen = l->plen;
     int fd = l->fd;
     char *buf = l->buf;
     size_t len = l->len;
@@ -372,14 +392,16 @@ static int refreshSingleLine(struct linenoiseState *l) {
     if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Write the prompt and the current buffer content */
-    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,strlen(l->prompt))) == -1) return -1;
+    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,l->plen)) == -1) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,buf,len)) == -1) return -1;
     /* Erase to right */
     if (snprintf(seq,64,"\x1b[0K") < 0) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Move cursor to original position. */
-    if (snprintf(seq,64,"\x1b[0G\x1b[%dC", (int)(pos+plen)) < 0) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (pos+plen != 0) {
+        if (snprintf(seq,64,"\x1b[0G\x1b[%dC", (int)(pos+plen)) < 0) return -1;
+        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    }
     return 0;
 }
 
@@ -389,7 +411,7 @@ static int refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static int refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = strlen(l->prompt);
+    int plen = l->plen;
     int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = (plen+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
@@ -432,7 +454,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     
     /* Write the prompt and the current buffer content */
-    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,strlen(l->prompt))) == -1) return -1;
+    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,l->plen)) == -1) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,l->buf,l->len)) == -1) return -1;
 
     /* If we are at the very end of the screen with our prompt, we need to
@@ -488,9 +510,29 @@ static int refreshLine(struct linenoiseState *l) {
         result = refreshMultiLine(l);
     else
         result = refreshSingleLine(l);
-    if (result == 0)
-        l->needsRefresh = false;
+    if (result == 0) {
+        l->needs_refresh = false;
+        l->is_displayed = true;
+    }
     return result;
+}
+
+static int prepareCustomOutput(struct linenoiseState *l)
+{
+    if (l->is_displayed) {
+        struct linenoiseState oldstate = *l;
+        l->pos = l->len;
+        if (refreshLine(l) == -1) return -1;
+
+        printf("\r\n");
+
+        l->pos = oldstate.pos;
+        l->maxrows = 0;
+
+        l->needs_refresh = true;
+        l->is_displayed = false;
+    }
+    return 0;
 }
 
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen)
@@ -554,19 +596,20 @@ int linenoiseEditCancel(struct linenoiseState *l)
     } else if (l->pos + 1 == l->len) {
         l->buf[l->pos] = '^';
         l->pos = l->len;
+        if (refreshLine(l) == -1) return -1;
         if (linenoiseEditInsert(l, 'C') == -1) return -1;
     } else {
         if (linenoiseEditInsert(l, '^') == -1) return -1;
         if (linenoiseEditInsert(l, 'C') == -1) return -1;
     }
 
-    if (printf("\n") < 0) return -1;
+    if (printf("\r\n") < 0) return -1;
 
-    l->oldpos = l->pos = 0;
     l->len = 0;
     l->maxrows = 0;
 
-    l->needsRefresh = true;
+    l->needs_refresh = true;
+    l->is_displayed = false;
 
     return 0;
 }
@@ -668,12 +711,11 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  * The function returns the length of the current buffer. */
 static int linenoiseEdit(struct linenoiseState *l)
 {
-    if (l->needsRefresh)
+    if (l->needs_refresh || !l->is_displayed)
         if (refreshLine(l) == -1) return -1;
 
     /* Buffer starts empty. */
     l->buf[0] = '\0';
-    l->buflen--; /* Make sure there is always space for the nulterm */
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
@@ -688,7 +730,11 @@ static int linenoiseEdit(struct linenoiseState *l)
         char seq[2], seq2[2];
 
         nread = read(l->fd,&c,1);
-        if (nread <= 0) return l->len;
+
+        if (nread < 0 && l->len == 0)
+            return nread;
+        if (nread <= 0)
+            return l->len;
 
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
@@ -703,6 +749,7 @@ static int linenoiseEdit(struct linenoiseState *l)
 
         switch(c) {
         case 13:    /* enter */
+            l->state = LS_NEW_LINE;
             history_len--;
             free(history[history_len]);
             return (int)l->len;
@@ -818,7 +865,6 @@ static int linenoiseRaw(struct linenoiseState *l) {
 
     int savederrno = errno;
     disableRawMode(l->fd);
-    printf("\n");
 
     errno = savederrno;
     return count;
@@ -858,13 +904,13 @@ char *linenoise(const char *prompt) {
             if ( newCols != state.cols )
             {
                 state.cols = newCols;
-                state.needsRefresh = true;
+                state.needs_refresh = true;
             }
             if (strcmp(state.prompt, prompt) != 0) {
                 free(state.prompt);
                 state.prompt = strdup(prompt);
                 state.plen = strlen(prompt);
-                state.needsRefresh = true;
+                state.needs_refresh = true;
                 if (state.prompt == NULL) return NULL;
             }
         }
@@ -874,6 +920,16 @@ char *linenoise(const char *prompt) {
 
         char* result = strdup(state.buf);
         if (result == NULL) errno = ENOMEM;
+
+        if (count >= 0) {
+            printf("\r\n");
+            state.maxrows = 0;
+            state.pos = state.len = 0;
+            state.buf[0] = '\0';
+            state.needs_refresh = true;
+            state.is_displayed = false;
+        }
+
         return result;
     }
 }
@@ -894,8 +950,8 @@ static int initialize(const char *prompt)
     state.cols = getColumns();
     state.maxrows = 0;
     state.history_index = 0;
-    state.needsRefresh = true;
-    state.state = LS_READ;
+    state.needs_refresh = true;
+    state.state = LS_NEW_LINE;
     if ( state.buf == NULL || state.prompt == NULL )
     {
         errno = ENOMEM;

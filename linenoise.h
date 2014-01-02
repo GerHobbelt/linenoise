@@ -42,14 +42,12 @@ extern "C"
 {
 #endif
 
-typedef struct linenoiseCompletions {
-  size_t len;
-  char **cvec;
-} linenoiseCompletions;
+struct linenoiseCompletions;
+typedef struct linenoiseCompletions linenoiseCompletions;
 
-typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
+typedef void(linenoiseCompletionCallback)(const char *, size_t, linenoiseCompletions *);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
-void linenoiseAddCompletion(linenoiseCompletions *, char *);
+void linenoiseAddCompletion(linenoiseCompletions *, char *, size_t);
 
 char *linenoise(const char *prompt);
 

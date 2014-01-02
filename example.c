@@ -1,13 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include "linenoise.h"
 
 
-void completion(const char *buf, linenoiseCompletions *lc) {
+void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
+    (void) pos;
     if (buf[0] == 'h') {
-        linenoiseAddCompletion(lc,"hello");
-        linenoiseAddCompletion(lc,"hello there");
+        linenoiseAddCompletion(lc, "hello", SIZE_MAX);
+        linenoiseAddCompletion(lc, "hello there", SIZE_MAX);
     }
 }
 
