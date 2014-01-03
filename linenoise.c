@@ -332,11 +332,18 @@ static bool revertSignals(struct linenoiseState *ls) {
 }
 
 /* Clear the screen. Used to handle ctrl+l */
-int linenoiseClearScreen(void) {
+int clearScreen(struct linenoiseState *ls) {
     if (TEMP_FAILURE_RETRY(write(STDIN_FILENO,"\x1b[H\x1b[2J",7)) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
+    ls->needs_refresh = true;
+    ls->maxrows = 0;
     return 0;
+}
+
+/* Clear the screen. Used to handle ctrl+l */
+int linenoiseClearScreen(void) {
+    return clearScreen(&state);
 }
 
 /* Beep, used for completion when there is nothing to complete or when all
@@ -1198,7 +1205,7 @@ static int linenoiseEdit(struct linenoiseState *l)
             if (refreshLine(l) == -1) return -1;
             break;
         case 12: /* ctrl+l, clear screen */
-            if (linenoiseClearScreen() == -1) return -1;
+            if (clearScreen(l) == -1) return -1;
             if (refreshLine(l) == -1) return -1;
             break;
         case 23: /* ctrl+w, delete previous word */
