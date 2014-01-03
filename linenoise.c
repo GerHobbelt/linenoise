@@ -202,6 +202,7 @@ struct linenoiseState {
     size_t plen;        /* Prompt length. */
     size_t pos;         /* Current cursor position. */
     size_t oldpos;      /* Previous refresh cursor position. */
+    size_t oldrpos;     /* Previous cursor row position. */
     size_t len;         /* Current edited line length. */
     size_t cols;        /* Number of columns in terminal. */
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
@@ -506,12 +507,10 @@ static int refreshSingleLine(struct linenoiseState *l) {
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
 static int refreshMultiLine(struct linenoiseState *l) {
-    // FIXME: The code has bug when the number of columns changes and the
-    // cursor is moved down
     char seq[64];
     int plen = l->plen;
     int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
-    int rpos = (plen+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
+    int rpos = l->oldrpos;  /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
     int old_rows = l->maxrows;
     int fd = l->fd, j;
@@ -592,6 +591,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     if (write(fd,seq,strlen(seq)) == -1) return -1;
 
     l->oldpos = l->pos;
+    l->oldrpos = rpos2;
 
 #ifdef LN_DEBUG
     fprintf(fp,"\n");
@@ -1320,6 +1320,7 @@ static int initialize(const char *prompt)
     state.prompt = strdup(prompt);
     state.plen = strlen(prompt);
     state.oldpos = state.pos = 0;
+    state.oldrpos = 0;
     state.len = 0;
     state.cols = getColumns();
     state.maxrows = 0;
