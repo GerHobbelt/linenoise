@@ -2,15 +2,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <signal.h>
 #include "linenoise.h"
 
 
 void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
-    if (buf[0] == 'h') {
+    if (buf[0] == 'h' || buf[0] == '\0') {
         linenoiseAddCompletion(lc, "hello", SIZE_MAX);
         linenoiseAddCompletion(lc, "hello there", SIZE_MAX);
     }
+    if (buf[0] == 'm' || buf[0] == '\0') {
+        linenoiseAddCompletion(lc, "multi", SIZE_MAX);
+    }
+}
+
+void sigint_handler(int signum)
+{
+    (void) signum;
+    linenoiseCancel();
 }
 
 int main(int argc, char **argv) {
@@ -29,6 +39,8 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+
+    signal(SIGINT, sigint_handler);
 
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
