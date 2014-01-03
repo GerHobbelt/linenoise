@@ -219,7 +219,10 @@ struct linenoiseState {
     int read_back_char_len;                 /* Number of characters in buffer */
 };
 
-static struct linenoiseState state;
+static struct linenoiseState state = {
+        fd: STDIN_FILENO,
+        state: LS_NEW_LINE,
+};
 static bool initialized = false;
 
 static void linenoiseAtExit(void);
@@ -1264,7 +1267,6 @@ char *linenoise(const char *prompt) {
         errno = 0;
         if ( !initialized )
         {
-            // TODO: Move initialization out - for nonblocking mode to actually work
             if (initialize(prompt) == -1) return NULL;
             initialized = true;
         }
@@ -1321,41 +1323,17 @@ static int initialize(const char *prompt)
 
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
-    state.fd = STDIN_FILENO;
-    state.buf = malloc(LINENOISE_LINE_INIT_MAX_AND_GROW);
+    state.buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
     state.buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
     state.prompt = strdup(prompt);
     state.plen = strlen(prompt);
-    state.oldpos = state.pos = 0;
-    state.oldrpos = 0;
-    state.len = 0;
     state.cols = getColumns();
-    state.maxrows = 0;
-    state.history_index = 0;
-    state.needs_refresh = true;
-    state.state = LS_NEW_LINE;
 
     if ( state.buf == NULL || state.prompt == NULL )
     {
         errno = ENOMEM;
         return -1;
     }
-    state.buf[0] = '\0';
-
-    state.comp.is_initialized = false;
-    state.comp.cvec = NULL;
-    state.comp.len = 0;
-    state.comp.max_strlen = 0;
-
-    state.sigint_blocked = false;
-
-    state.ansi.ansi_escape_len = 0;
-    state.ansi.ansi_intermediate_len = 0;
-    state.ansi.ansi_parameter_len = 0;
-    state.ansi.ansi_state = AES_NONE;
-    state.ansi.ansi_character_set = ACS_C1;
-
-    state.read_back_char_len = 0;
 
     return 0;
 }
