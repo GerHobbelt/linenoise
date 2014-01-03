@@ -146,7 +146,8 @@ char **history = NULL;
 
 enum LinenoiseState {
     LS_NEW_LINE,
-    LS_READ
+    LS_READ,
+    LS_COMPLETION
 };
 
 enum ReadCharSpecials {
@@ -177,6 +178,14 @@ enum AnsiCharacterSet {
     ACS_CSI,
     ACS_G2,
     ACS_G3
+};
+
+enum LinenoiseResult {
+    LR_HAVE_TEXT = 1,
+    LR_CLOSED = 0,
+    LR_ERROR = -1,
+    LR_CANCELLED = -2,
+    LR_CONTINUE = -3
 };
 
 typedef struct linenoiseAnsi {
@@ -210,6 +219,7 @@ struct linenoiseState {
     bool needs_refresh; /* True when the lines need to be refreshed. */
     bool is_displayed;  /* True when the prompt has been displayed. */
     bool is_cancelled;   /* True when the input has been cancelled (CTRL+C). */
+    bool is_closed;     /* True once the input has been closed. */
     enum LinenoiseState state;  /* Internal state. */
     linenoiseCompletions comp;  /* Line completions. */
     bool sigint_blocked;   /* True when the SIGINT is blocked. */
@@ -386,61 +396,43 @@ static int completitionCompare(const void *first, const void *second)
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
 static int completeLine(struct linenoiseState *ls) {
-    bool wasInitialized = ls->comp.is_initialized;
-    if (!ls->comp.is_initialized)
-    {
-        completionCallback(ls->buf, ls->pos, &ls->comp);
-    }
-
-    if (ls->comp.len > 0 && ls->comp.cvec == NULL) {
-        errno = ENOMEM;
-        goto err_cleanup;
-    } else if (ls->comp.len == 0) {
-        if (linenoiseBeep() == -1) goto err_cleanup;
-        freeCompletions(ls);
+    if (ls->comp.len == 0) {
+        if (linenoiseBeep() == -1) return -1;
     } else if (ls->comp.len == 1) {
         // Simple case
         size_t new_strlen = strlen(ls->comp.cvec[0].text);
-        if (ensureBufLen(ls, new_strlen) == -1) goto err_cleanup;
+        if (ensureBufLen(ls, new_strlen) == -1) return -1;
 
         memcpy(ls->buf, ls->comp.cvec[0].text, new_strlen+1);
         ls->pos = MIN(new_strlen, ls->comp.cvec[0].pos);
         ls->len = new_strlen;
-        if (refreshLine(ls) == -1) goto err_cleanup;
-        freeCompletions(ls);
+        if (refreshLine(ls) == -1) return -1;
     } else {
-        ls->comp.is_initialized = true;
-        if (wasInitialized) {
-            // Multiple choices - sort them and print
-            if (prepareCustomOutput(ls) == -1) goto err_cleanup;
+        // Multiple choices - sort them and print
+        if (prepareCustomOutput(ls) == -1) return -1;
 
-            qsort(ls->comp.cvec, ls->comp.len, sizeof(linenoiseSingleCompletion), completitionCompare);
-            size_t colSize = ls->comp.max_strlen + LINENOISE_COL_SPACING;
-            size_t cols = ls->cols / colSize;
-            if (cols == 0)
-                cols = 1;
-            size_t rows = (ls->comp.len + cols - 1) / cols;
-            size_t i;
+        qsort(ls->comp.cvec, ls->comp.len, sizeof(linenoiseSingleCompletion), completitionCompare);
+        size_t colSize = ls->comp.max_strlen + LINENOISE_COL_SPACING;
+        size_t cols = ls->cols / colSize;
+        if (cols == 0)
+            cols = 1;
+        size_t rows = (ls->comp.len + cols - 1) / cols;
+        size_t i;
 
-            for (i = 0; i < ls->comp.len; i++)
-            {
-                size_t real_index = (i % cols) * rows + i / cols;
-                if (real_index < ls->comp.len)
-                    printf("%-*s", (int)colSize, ls->comp.cvec[real_index].text);
-                if ((i % cols) == (cols - 1))
-                    printf("\r\n");
-            }
-            if ((i % cols) != 0)
+        for (i = 0; i < ls->comp.len; i++)
+        {
+            size_t real_index = (i % cols) * rows + i / cols;
+            if (real_index < ls->comp.len)
+                printf("%-*s", (int)colSize, ls->comp.cvec[real_index].text);
+            if ((i % cols) == (cols - 1))
                 printf("\r\n");
-            if (refreshLine(ls) == -1) goto err_cleanup;
         }
+        if ((i % cols) != 0)
+            printf("\r\n");
+        if (refreshLine(ls) == -1) return -1;
     }
 
     return 0;
-
-err_cleanup:
-    freeCompletions(ls);
-    return -1;
 }
 
 /* Register a callback function to be called for tab-completion. */
@@ -788,10 +780,16 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
     return la->ansi_escape_len != ANSI_ESCAPE_MAX_LEN || la->ansi_state == AES_FINAL;
 }
 
-bool pushBackChar(struct linenoiseState *l, int c)
+bool pushFrontChar(struct linenoiseState *l, int c)
 {
-    if (c != RCS_NONE && l->read_back_char_len < READ_BACK_MAX_LEN) {
-        l->read_back_char[l->read_back_char_len++] = c;
+    if (c != RCS_NONE) {
+        if (l->read_back_char_len == READ_BACK_MAX_LEN)
+            l->read_back_char_len--;
+        if (l->read_back_char_len > 0)
+            memmove(l->read_back_char + 1, l->read_back_char,
+                    l->read_back_char_len * sizeof(l->read_back_char[0]));
+        l->read_back_char[0] = c;
+        l->read_back_char_len++;
         return true;
     } else {
         return false;
@@ -814,7 +812,7 @@ int readChar(struct linenoiseState *l)
             if (refreshLine(l) == -1) return -1;
         }
         if (l->read_back_char_len > 0) {
-            result = (unsigned char)l->read_back_char[0];
+            result = l->read_back_char[0];
             l->read_back_char_len--;
             if (l->read_back_char_len > 0) {
                 memmove(l->read_back_char, l->read_back_char + 1,
@@ -1047,6 +1045,26 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     return refreshLine(l);
 }
 
+void resetState(struct linenoiseState *l)
+{
+    if (l->state != LS_NEW_LINE) {
+        if (l->state == LS_COMPLETION) {
+            freeCompletions(l);
+        }
+
+        history_len--;
+        free(history[history_len]);
+
+        l->state = LS_NEW_LINE;
+    }
+}
+
+void setClosed(struct linenoiseState *l)
+{
+    resetState(l);
+    l->is_closed = true;
+}
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -1055,183 +1073,206 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  * when ctrl+d is typed.
  *
  * The function returns the length of the current buffer. */
-static int linenoiseEdit(struct linenoiseState *l)
+static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
 {
-    // TODO: More exit codes to indicate cancel, ctrl-d and so on
-    if (l->needs_refresh || !l->is_displayed)
-        if (refreshLine(l) == -1) return -1;
-
-    /* Buffer starts empty. */
-    l->buf[0] = '\0';
-
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
     if (l->state == LS_NEW_LINE) {
+        /* Buffer starts empty. */
+        l->maxrows = 0;
+        l->pos = l->len = 0;
+        l->buf[0] = '\0';
+        l->is_displayed = false;
+        l->buf[0] = '\0';
+
         linenoiseHistoryAdd("");
         l->state = LS_READ;
+    }
+
+    if (l->needs_refresh || !l->is_displayed)
+        if (refreshLine(l) == -1) return LR_ERROR;
+
+    int c = readChar(l);
+
+    if (c == RCS_CLOSED) {
+        setClosed(l);
+        return LR_CLOSED;
+    }
+    else if (c == RCS_ERROR) {
+        return LR_ERROR;
+    }
+
+    /* Only autocomplete when the callback is set. It returns < 0 when
+     * there was an error reading from fd. Otherwise it will return the
+     * character that should be handled next. */
+    if (c == 9 && completionCallback != NULL) {
+        pushFrontChar(l, c);
+        l->state = LS_COMPLETION;
+        return LR_CONTINUE;
+    }
+
+    switch(c) {
+    case 13:    /* enter */
+        resetState(l);
+        return LR_HAVE_TEXT;
+    case RCS_CANCELLED:
+    case 3:     /* ctrl-c */
+        if (cancelInternal(l) == -1) return LR_ERROR;
+        resetState(l);
+        return LR_CANCELLED;
+    case 127:   /* backspace */
+    case 8:     /* ctrl-h */
+        if (linenoiseEditBackspace(l) == -1) return LR_ERROR;
+        break;
+    case 4:     /* ctrl-d, remove char at right of cursor, or of the
+                   line is empty, act as end-of-file. */
+        if (l->len > 0) {
+            if (linenoiseEditDelete(l) == -1) return LR_ERROR;
+        } else {
+            setClosed(l);
+            return LR_CLOSED;
+        }
+        break;
+    case 20:    /* ctrl-t, swaps current character with previous. */
+        if (l->pos > 0 && l->pos < l->len) {
+            int aux = l->buf[l->pos-1];
+            l->buf[l->pos-1] = l->buf[l->pos];
+            l->buf[l->pos] = aux;
+            if (l->pos != l->len-1) l->pos++;
+            if (refreshLine(l) == -1) return LR_ERROR;
+        }
+        break;
+    case 2:     /* ctrl-b */
+        if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
+        break;
+    case 6:     /* ctrl-f */
+        if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
+        break;
+    case 16:    /* ctrl-p */
+        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV) == -1) return LR_ERROR;
+        break;
+    case 14:    /* ctrl-n */
+        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_CURSOR_LEFT:
+        if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_CURSOR_RIGHT:
+        if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_CURSOR_UP:
+    case RCS_ANSI_CURSOR_DOWN:
+        if (linenoiseEditHistoryNext(l,
+                c == RCS_ANSI_CURSOR_UP ? LINENOISE_HISTORY_PREV :
+                                          LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_DELETE:
+        if (linenoiseEditDelete(l) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_HOME:
+        l->pos = 0;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case RCS_ANSI_END:
+        l->pos = l->len;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    default:
+        if (c > 0) {
+            if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
+        }
+        break;
+    case 21: /* Ctrl+u, delete the whole line. */
+        l->buf[0] = '\0';
+        l->pos = l->len = 0;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case 11: /* Ctrl+k, delete from current to end of line. */
+        l->buf[l->pos] = '\0';
+        l->len = l->pos;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case 1: /* Ctrl+a, go to the start of the line */
+        l->pos = 0;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case 5: /* ctrl+e, go to the end of the line */
+        l->pos = l->len;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case 12: /* ctrl+l, clear screen */
+        if (clearScreen(l) == -1) return LR_ERROR;
+        if (refreshLine(l) == -1) return LR_ERROR;
+        break;
+    case 23: /* ctrl+w, delete previous word */
+        if (linenoiseEditDeletePrevWord(l) == -1) return LR_ERROR;
+        break;
+    }
+
+    return LR_CONTINUE;
+}
+
+static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
+    bool wasInitialized = l->comp.is_initialized;
+    if (!wasInitialized) {
+        completionCallback(l->buf, l->pos, &l->comp);
+        if (l->comp.len > 0 && l->comp.cvec == NULL) {
+            errno = ENOMEM;
+            return LR_ERROR;
+        }
+        l->comp.is_initialized = true;
+    }
+
+    int c = readChar(l);
+
+    switch (c) {
+    case RCS_CANCELLED:
+    case RCS_CLOSED:
+        // Let the normal processing to do its job
         freeCompletions(l);
+        pushFrontChar(l, c);
+        l->state = LS_READ;
+        return LR_CONTINUE;
+    case RCS_ERROR:
+        return LR_ERROR;
+    case 9:
+        if (wasInitialized || l->comp.len < 2)
+            completeLine(l);
+        return LR_CONTINUE;
+    default:
+        freeCompletions(l);
+        pushFrontChar(l, c);
+        l->state = LS_READ;
+        return LR_CONTINUE;
     }
-    
-    while(1) {
-        int c = readChar(l);
-
-        if (c == RCS_NONE || c == RCS_CLOSED) {
-            l->state = LS_NEW_LINE;
-            history_len--;
-            free(history[history_len]);
-
-            if (c == RCS_CLOSED && l->len == 0) {
-                errno = 0;
-                return -1;
-            } else
-                return l->len;
-        }
-        else if (c == RCS_ERROR) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || l->len == 0) {
-                return -1;
-            } else {
-                l->state = LS_NEW_LINE;
-                history_len--;
-                free(history[history_len]);
-                return l->len;
-            }
-        }
-
-        /* Only autocomplete when the callback is set. It returns < 0 when
-         * there was an error reading from fd. Otherwise it will return the
-         * character that should be handled next. */
-        if (c == 9 && completionCallback != NULL) {
-            c = completeLine(l);
-            /* Return on errors */
-            if (c < 0) return l->len;
-            /* Read next character when 0 */
-            if (c == 0) continue;
-        }
-        else {
-            freeCompletions(l);
-        }
-
-        switch(c) {
-        case 13:    /* enter */
-            l->state = LS_NEW_LINE;
-            history_len--;
-            free(history[history_len]);
-            return (int)l->len;
-        case RCS_CANCELLED:
-        case 3:     /* ctrl-c */
-            if (cancelInternal(l) == -1) return -1;
-            l->state = LS_NEW_LINE;
-            history_len--;
-            free(history[history_len]);
-            errno = EINTR;
-            return -1;
-        case 127:   /* backspace */
-        case 8:     /* ctrl-h */
-            if (linenoiseEditBackspace(l) == -1) return -1;
-            break;
-        case 4:     /* ctrl-d, remove char at right of cursor, or of the
-                       line is empty, act as end-of-file. */
-            if (l->len > 0) {
-                if (linenoiseEditDelete(l) == -1) return -1;
-            } else {
-                history_len--;
-                free(history[history_len]);
-                errno = 0;
-                return -1;
-            }
-            break;
-        case 20:    /* ctrl-t, swaps current character with previous. */
-            if (l->pos > 0 && l->pos < l->len) {
-                int aux = l->buf[l->pos-1];
-                l->buf[l->pos-1] = l->buf[l->pos];
-                l->buf[l->pos] = aux;
-                if (l->pos != l->len-1) l->pos++;
-                if (refreshLine(l) == -1) return -1;
-            }
-            break;
-        case 2:     /* ctrl-b */
-            if (linenoiseEditMoveLeft(l) == -1) return -1;
-            break;
-        case 6:     /* ctrl-f */
-            if (linenoiseEditMoveRight(l) == -1) return -1;
-            break;
-        case 16:    /* ctrl-p */
-            if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV) == -1) return -1;
-            break;
-        case 14:    /* ctrl-n */
-            if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT) == -1) return -1;
-            break;
-        case RCS_ANSI_CURSOR_LEFT:
-            if (linenoiseEditMoveLeft(l) == -1) return -1;
-            break;
-        case RCS_ANSI_CURSOR_RIGHT:
-            if (linenoiseEditMoveRight(l) == -1) return -1;
-            break;
-        case RCS_ANSI_CURSOR_UP:
-        case RCS_ANSI_CURSOR_DOWN:
-            if (linenoiseEditHistoryNext(l,
-                    c == RCS_ANSI_CURSOR_UP ? LINENOISE_HISTORY_PREV :
-                                              LINENOISE_HISTORY_NEXT) == -1) return -1;
-            break;
-        case RCS_ANSI_DELETE:
-            if (linenoiseEditDelete(l) == -1) return -1;
-            break;
-        case RCS_ANSI_HOME:
-            l->pos = 0;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case RCS_ANSI_END:
-            l->pos = l->len;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        default:
-            if (c > 0) {
-                if (linenoiseEditInsert(l,c) == -1) return -1;
-            }
-            break;
-        case 21: /* Ctrl+u, delete the whole line. */
-            l->buf[0] = '\0';
-            l->pos = l->len = 0;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case 11: /* Ctrl+k, delete from current to end of line. */
-            l->buf[l->pos] = '\0';
-            l->len = l->pos;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case 1: /* Ctrl+a, go to the start of the line */
-            l->pos = 0;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case 5: /* ctrl+e, go to the end of the line */
-            l->pos = l->len;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case 12: /* ctrl+l, clear screen */
-            if (clearScreen(l) == -1) return -1;
-            if (refreshLine(l) == -1) return -1;
-            break;
-        case 23: /* ctrl+w, delete previous word */
-            if (linenoiseEditDeletePrevWord(l) == -1) return -1;
-            break;
-        }
-    }
-    return l->len;
 }
 
 /* This function calls the line editing function linenoiseEdit() using
  * the STDIN file descriptor set in raw mode. */
-static int linenoiseRaw(struct linenoiseState *l) {
-    int count = 1;
-
-    if (l->buflen == 0) {
+static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
+    if (l->is_closed) {
+        return LR_CLOSED;
+    } else if (l->buflen == 0) {
         errno = EINVAL;
-        return -1;
+        return LR_ERROR;
     }
-    if (enableRawMode(l->fd) == -1) return -1;
+
+    if (enableRawMode(l->fd) == -1) return LR_ERROR;
 
     bool gotBlocked = blockSignals(l);
-    count = linenoiseEdit(l);
+    enum LinenoiseResult result = LR_CONTINUE;
+    while (result == LR_CONTINUE) {
+        switch (l->state) {
+        case LS_COMPLETION:
+            result = linenoiseCompletion(l);
+            break;
+        case LS_NEW_LINE:
+        case LS_READ:
+        default:
+            result = linenoiseEdit(l);
+            break;
+        }
+    }
 
     int savederrno = errno;
 
@@ -1239,7 +1280,7 @@ static int linenoiseRaw(struct linenoiseState *l) {
     if (gotBlocked) revertSignals(l);
 
     errno = savederrno;
-    return count;
+    return result;
 }
 
 /* The high level function that is the main API of the linenoise library.
@@ -1262,8 +1303,6 @@ char *linenoise(const char *prompt) {
         }
         return strdup(buf);
     } else {
-        int count;
-
         errno = 0;
         if ( !initialized )
         {
@@ -1282,25 +1321,26 @@ char *linenoise(const char *prompt) {
             }
         }
 
-        count = linenoiseRaw(&state);
+        enum LinenoiseResult result = linenoiseRaw(&state);
 
-        if (count >= 0 || (errno != EWOULDBLOCK && errno != EAGAIN))
+        if (result == LR_CLOSED || result == LR_CANCELLED || result == LR_HAVE_TEXT)
             printf("\r\n");
 
-        if (count == -1) return NULL;
-
-        char* result = strndup(state.buf, count);
-        if (result == NULL) errno = ENOMEM;
-
-        if (count >= 0) {
-            state.maxrows = 0;
-            state.pos = state.len = 0;
-            state.buf[0] = '\0';
-            state.needs_refresh = true;
-            state.is_displayed = false;
+        if (result == LR_CANCELLED) {
+            errno = EINTR;
+            return NULL;
+        } else if (result == LR_CLOSED && state.len == 0) {
+            errno = 0;
+            return NULL;
+        } else if (result == LR_ERROR) {
+            return NULL;
         }
 
-        return result;
+        // Have some text
+        char* copy = strndup(state.buf, state.len);
+        if (copy == NULL) errno = ENOMEM;
+
+        return copy;
     }
 }
 
