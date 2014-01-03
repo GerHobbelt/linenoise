@@ -791,6 +791,11 @@ int readChar(struct linenoiseState *l)
     unsigned char c;
     int nread = -1;
 
+    if (l->is_cancelled) {
+        l->is_cancelled = false;
+        return RCS_CANCELLED;
+    }
+
     while (result == RCS_NONE) {
         if (l->read_back_char_len > 0) {
             result = (unsigned char)l->read_back_char[0];
