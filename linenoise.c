@@ -159,6 +159,8 @@ enum ReadCharSpecials {
     RCS_ANSI_CURSOR_UP = -6,
     RCS_ANSI_CURSOR_DOWN = -7,
     RCS_ANSI_DELETE = -8,
+    RCS_ANSI_HOME = -9,
+    RCS_ANSI_END = -10
 };
 
 enum AnsiEscapeState {
@@ -166,7 +168,15 @@ enum AnsiEscapeState {
     AES_INTERMEDIATE = 1,
     AES_CSI_PARAMETER = 2,
     AES_CSI_INTERMEDIATE = 3,
-    AES_FINAL = 4
+    AES_SS_CHARACTER = 4,
+    AES_FINAL = 5
+};
+
+enum AnsiCharacterSet {
+    ACS_C1,
+    ACS_CSI,
+    ACS_G2,
+    ACS_G3
 };
 
 typedef struct linenoiseAnsi {
@@ -175,7 +185,7 @@ typedef struct linenoiseAnsi {
     char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];
     char ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];
     char ansi_final;
-    bool ansi_is_csi;
+    enum AnsiCharacterSet ansi_character_set;
     int ansi_escape_len;                    /* Current length of sequence */
     int ansi_intermediate_len;              /* Current length of intermediate block */
     int ansi_parameter_len;                 /* Current length of parameter block */
@@ -663,13 +673,39 @@ static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen)
 
 int ansiDecode(struct linenoiseAnsi *la)
 {
-    if (la->ansi_is_csi) {
+    if (la->ansi_character_set == ACS_CSI) {
         switch (la->ansi_final)
         {
-        case 0x41: return RCS_ANSI_CURSOR_UP;
-        case 0x42: return RCS_ANSI_CURSOR_DOWN;
-        case 0x43: return RCS_ANSI_CURSOR_RIGHT;
-        case 0x44: return RCS_ANSI_CURSOR_LEFT;
+        case 0x41:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_CURSOR_UP;
+            else
+                break;
+        case 0x42:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_CURSOR_DOWN;
+            else
+                break;
+        case 0x43:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_CURSOR_RIGHT;
+            else
+                break;
+        case 0x44:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_CURSOR_LEFT;
+            else
+                break;
+        case 0x46:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_END;
+            else
+                break;
+        case 0x48:
+            if (la->ansi_parameter_len == 0)
+                return RCS_ANSI_HOME;
+            else
+                break;
         case 0x7E: {
             if (strcmp(la->ansi_parameter, "3") == 0)
                 return RCS_ANSI_DELETE;
@@ -687,7 +723,7 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
         la->ansi_escape[la->ansi_escape_len++] = c;
         la->ansi_intermediate_len = 0;
         la->ansi_parameter_len = 0;
-        la->ansi_is_csi = false;
+        la->ansi_character_set = ACS_C1;
         la->ansi_state = AES_INTERMEDIATE;
     } else {
         if (la->ansi_state == AES_INTERMEDIATE && c >= 0x20 && c <= 0x2F) {
@@ -707,12 +743,23 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
             la->ansi_escape[la->ansi_escape_len++] = c;
             if (la->ansi_escape_len == 2 && c == 0x5B) {
                 la->ansi_state = AES_CSI_PARAMETER;
-                la->ansi_is_csi = true;
+                la->ansi_character_set = ACS_CSI;
+            } else if (la->ansi_escape_len == 2 && c == 0x4E) {
+                la->ansi_state = AES_SS_CHARACTER;
+                la->ansi_character_set = ACS_G2;
+            } else if (la->ansi_escape_len == 2 && c == 0x4F) {
+                la->ansi_state = AES_SS_CHARACTER;
+                la->ansi_character_set = ACS_G3;
             } else {
                 la->ansi_final = c;
                 la->ansi_state = AES_FINAL;
             }
         } else if ((la->ansi_state == AES_CSI_INTERMEDIATE || la->ansi_state == AES_CSI_PARAMETER) && c >= 0x40 && c < 0x7F) {
+            la->ansi_escape[la->ansi_escape_len++] = c;
+            la->ansi_final = c;
+            la->ansi_state = AES_FINAL;
+        } else if (la->ansi_state == AES_SS_CHARACTER) {
+            la->ansi_escape[la->ansi_escape_len++] = c;
             la->ansi_final = c;
             la->ansi_state = AES_FINAL;
         } else {
@@ -1105,6 +1152,14 @@ static int linenoiseEdit(struct linenoiseState *l)
         case RCS_ANSI_DELETE:
             if (linenoiseEditDelete(l) == -1) return -1;
             break;
+        case RCS_ANSI_HOME:
+            l->pos = 0;
+            if (refreshLine(l) == -1) return -1;
+            break;
+        case RCS_ANSI_END:
+            l->pos = l->len;
+            if (refreshLine(l) == -1) return -1;
+            break;
         default:
             if (c > 0) {
                 if (linenoiseEditInsert(l,c) == -1) return -1;
@@ -1271,7 +1326,7 @@ static int initialize(const char *prompt)
     state.ansi.ansi_intermediate_len = 0;
     state.ansi.ansi_parameter_len = 0;
     state.ansi.ansi_state = AES_NONE;
-    state.ansi.ansi_is_csi = false;
+    state.ansi.ansi_character_set = ACS_C1;
 
     state.read_back_char_len = 0;
 
