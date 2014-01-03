@@ -49,7 +49,21 @@ typedef void(linenoiseCompletionCallback)(const char *, size_t, linenoiseComplet
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, char *, size_t);
 
+/**
+ * Cancels the input.
+ *
+ * Should be called from SIGINT handler or when linenoise(const char *) is not
+ * being called.
+ */
 void linenoiseCancel();
+
+/**
+ * Reconfigures the window size.
+ *
+ * Should be called from SIGWINCH handler or when the linenoise(const char *)
+ * is not being called.
+ */
+void linenoiseUpdateSize();
 
 char *linenoise(const char *prompt);
 

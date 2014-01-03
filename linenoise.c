@@ -302,13 +302,14 @@ static int getColumns(void) {
     return ws.ws_col;
 }
 
-static bool blockSigint(struct linenoiseState *ls) {
+static bool blockSignals(struct linenoiseState *ls) {
     if (!ls->sigint_blocked) {
         int old_errno = errno;
         sigset_t newset;
         sigemptyset(&newset);
         sigemptyset(&ls->sigint_oldmask);
         sigaddset(&newset, SIGINT);
+        sigaddset(&newset, SIGWINCH);
         sigprocmask(SIG_BLOCK, &newset, &ls->sigint_oldmask);
         ls->sigint_blocked = true;
         errno = old_errno;
@@ -318,7 +319,7 @@ static bool blockSigint(struct linenoiseState *ls) {
     }
 }
 
-static bool revertSigint(struct linenoiseState *ls) {
+static bool revertSignals(struct linenoiseState *ls) {
     if (ls->sigint_blocked) {
         int old_errno = errno;
         sigprocmask(SIG_SETMASK, &ls->sigint_oldmask, NULL);
@@ -505,6 +506,8 @@ static int refreshSingleLine(struct linenoiseState *l) {
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
 static int refreshMultiLine(struct linenoiseState *l) {
+    // FIXME: The code has bug when the number of columns changes and the
+    // cursor is moved down
     char seq[64];
     int plen = l->plen;
     int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
@@ -797,6 +800,9 @@ int readChar(struct linenoiseState *l)
     }
 
     while (result == RCS_NONE) {
+        if (l->needs_refresh) {
+            if (refreshLine(l) == -1) return -1;
+        }
         if (l->read_back_char_len > 0) {
             result = (unsigned char)l->read_back_char[0];
             l->read_back_char_len--;
@@ -809,17 +815,20 @@ int readChar(struct linenoiseState *l)
             nread = -1;
             do {
                 errno = 0;
-                bool wasBlocked = revertSigint(l);
+                bool wasBlocked = revertSignals(l);
                 struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
                 // poll is always interrupted by EINTR in case of an interrupt
                 pollresult = poll(fds, 1, -1);
                 if (pollresult == 1)
                     nread = read(l->fd, &c, 1);
-                if (wasBlocked) (void)blockSigint(l);
+                if (wasBlocked) (void)blockSignals(l);
 
                 if (l->is_cancelled) {
                     l->is_cancelled = false;
                     result = RCS_CANCELLED;
+                }
+                if (l->needs_refresh) {
+                    if (refreshLine(l) == -1) return -1;
                 }
             } while (result == RCS_NONE && nread < 0 && errno == EINTR);
         }
@@ -835,7 +844,7 @@ int readChar(struct linenoiseState *l)
                 // ANSI escape begin
                 struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
                 int pollresult;
-                bool gotBlocked = blockSigint(l);
+                bool gotBlocked = blockSignals(l);
                 struct timeval start;
                 gettimeofday(&start, NULL);
                 do {
@@ -847,7 +856,7 @@ int readChar(struct linenoiseState *l)
                     if (waitMs < 0) waitMs = 0;
                     pollresult = poll(fds, 1, waitMs);
                } while (pollresult < 0 && errno == EINTR);
-                if (gotBlocked) (void)revertSigint(l);
+                if (gotBlocked) (void)revertSignals(l);
 
                 if (pollresult < 0) result = RCS_ERROR;
                 if (pollresult == 0) {
@@ -1211,13 +1220,13 @@ static int linenoiseRaw(struct linenoiseState *l) {
     }
     if (enableRawMode(l->fd) == -1) return -1;
 
-    bool gotBlocked = blockSigint(l);
+    bool gotBlocked = blockSignals(l);
     count = linenoiseEdit(l);
 
     int savederrno = errno;
 
     disableRawMode(l->fd);
-    if (gotBlocked) revertSigint(l);
+    if (gotBlocked) revertSignals(l);
 
     errno = savederrno;
     return count;
@@ -1248,17 +1257,13 @@ char *linenoise(const char *prompt) {
         errno = 0;
         if ( !initialized )
         {
+            // TODO: Move initialization out - for nonblocking mode to actually work
             if (initialize(prompt) == -1) return NULL;
             initialized = true;
         }
         else
         {
-            size_t newCols = getColumns();
-            if ( newCols != state.cols )
-            {
-                state.cols = newCols;
-                state.needs_refresh = true;
-            }
+            linenoiseUpdateSize();
             if (strcmp(state.prompt, prompt) != 0) {
                 free(state.prompt);
                 state.prompt = strdup(prompt);
@@ -1292,6 +1297,15 @@ char *linenoise(const char *prompt) {
 
 void linenoiseCancel() {
     state.is_cancelled = true;
+}
+
+void linenoiseUpdateSize() {
+    size_t newCols = getColumns();
+    if ( newCols != state.cols )
+    {
+        state.cols = newCols;
+        state.needs_refresh = true;
+    }
 }
 
 static int initialize(const char *prompt)

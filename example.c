@@ -23,6 +23,12 @@ void sigint_handler(int signum)
     linenoiseCancel();
 }
 
+void sigwinch_handler(int signum)
+{
+    (void) signum;
+    linenoiseUpdateSize();
+}
+
 int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
@@ -41,6 +47,7 @@ int main(int argc, char **argv) {
     }
 
     signal(SIGINT, sigint_handler);
+    signal(SIGWINCH, sigwinch_handler);
 
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
