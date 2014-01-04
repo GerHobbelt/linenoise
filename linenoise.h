@@ -51,6 +51,15 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, char *, size_t);
 
 /**
+ * Prepares the line for custom output. The current text is cleared and the
+ * cursor is moved to the new line.
+ *
+ * Next call to linenoise(const char*) or linenoiseShowPrompt(const char*)
+ * refreshes the line.
+ */
+void linenoiseCustomOutput();
+
+/**
  * Cancels the input.
  *
  * Should be called from SIGINT handler or when linenoise(const char *) is not
@@ -66,6 +75,19 @@ void linenoiseCancel();
  */
 void linenoiseUpdateSize();
 
+/**
+ * Shows the prompt without reading any character.
+ */
+int linenoiseShowPrompt(const char *prompt);
+
+/**
+ * Gathers the line from input.
+ *
+ * @return Text when the full line is read, or NULL in case of error. The errno
+ * could be 0 if the file descriptor has been closed, or EINTR in case of
+ * CTRL+C, or ENOMEM in case of memory allocation failure, or other values
+ * that depend on the file descriptor type.
+ */
 char *linenoise(const char *prompt);
 
 int linenoiseHistoryAdd(const char *line);

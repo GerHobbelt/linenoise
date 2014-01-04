@@ -2,9 +2,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <signal.h>
+#include <errno.h>
+#include <poll.h>
 #include "linenoise.h"
 
+#define POLL_TIMEOUT_MS 10000
 
 void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
@@ -32,6 +38,7 @@ void sigwinch_handler(int signum)
 int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
+    bool async = false;
 
     /* Parse options, with --multiline we enable multi line editing. */
     while(argc > 1) {
@@ -40,8 +47,15 @@ int main(int argc, char **argv) {
         if (!strcmp(*argv,"--multiline")) {
             linenoiseSetMultiLine(1);
             printf("Multi-line mode enabled.\n");
+        } else  if (!strcmp(*argv,"--async")) {
+            async = true;
+
+            int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
+            fcntl(STDIN_FILENO, F_SETFL, flagsRead | O_NONBLOCK);
+
+            printf("Asynchronous mode enabled.\n");
         } else {
-            fprintf(stderr, "Usage: %s [--multiline]\n", prgname);
+            fprintf(stderr, "Usage: %s [--multiline] [--async]\n", prgname);
             exit(1);
         }
     }
@@ -63,20 +77,41 @@ int main(int argc, char **argv) {
      *
      * The typed string is returned as a malloc() allocated string by
      * linenoise, so the user needs to free() it. */
-    while((line = linenoise("hello> ")) != NULL) {
-        /* Do something with the string. */
-        if (line[0] != '\0' && line[0] != '/') {
-            printf("echo: '%s'\n", line);
-            linenoiseHistoryAdd(line); /* Add to the history. */
-            linenoiseHistorySave("history.txt"); /* Save the history on disk. */
-        } else if (!strncmp(line,"/historylen",11)) {
-            /* The "/historylen" command will change the history len. */
-            int len = atoi(line+11);
-            linenoiseHistorySetMaxLen(len);
-        } else if (line[0] == '/') {
-            printf("Unreconized command: %s\n", line);
+    int found_error = 0;
+    do {
+        if (async) {
+            linenoiseShowPrompt("hello> ");
+
+            int pollresult;
+            struct pollfd fds[1] = {{STDIN_FILENO, POLLIN, 0}};
+            pollresult = poll(fds, 1, POLL_TIMEOUT_MS);
+            if (pollresult == 0) {
+                linenoiseCustomOutput();
+                printf("* Ping\n");
+            }
         }
-        free(line);
-    }
+
+        errno = 0;
+        line = linenoise("hello> ");
+        found_error = errno;
+        if (line != NULL) {
+            /* Do something with the string. */
+            if (line[0] != '\0' && line[0] != '/') {
+                linenoiseCustomOutput();    // Needed only in async mode
+                printf("echo: '%s'\n", line);
+                linenoiseHistoryAdd(line); /* Add to the history. */
+                linenoiseHistorySave("history.txt"); /* Save the history on disk. */
+            } else if (!strncmp(line,"/historylen",11)) {
+                /* The "/historylen" command will change the history len. */
+                int len = atoi(line+11);
+                linenoiseHistorySetMaxLen(len);
+            } else if (line[0] == '/') {
+                linenoiseCustomOutput();    // Needed only in async mode
+                printf("Unreconized command: %s\n", line);
+            }
+            free(line);
+        }
+    } while (line != NULL || (found_error == EWOULDBLOCK || found_error == EAGAIN));
+
     return 0;
 }

@@ -102,6 +102,7 @@
 
 #include <termios.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -219,6 +220,7 @@ struct linenoiseState {
     size_t cols;        /* Number of columns in terminal. */
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
     int history_index;  /* The history index we are currently editing. */
+    bool is_async;      /* True when the STDIN is in O_NONBLOCK mode. */
     bool needs_refresh; /* True when the lines need to be refreshed. */
     bool is_displayed;  /* True when the prompt has been displayed. */
     bool is_cancelled;   /* True when the input has been cancelled (CTRL+C). */
@@ -240,7 +242,7 @@ static bool initialized = false;
 
 static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
-static int initialize(const char *prompt);
+static int initialize(struct linenoiseState *l, const char *prompt);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
 static int prepareCustomOutput(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
@@ -275,28 +277,30 @@ static int isUnsupportedTerm(void) {
 
 /* Raw mode: 1960 magic shit. */
 static int enableRawMode(int fd) {
-    struct termios raw;
+    if (!rawmode) {
+        struct termios raw;
 
-    if (tcgetattr(fd,&orig_termios) == -1) goto fatal;
+        if (tcgetattr(fd,&orig_termios) == -1) goto fatal;
 
-    raw = orig_termios;  /* modify the original mode */
-    /* input modes: no CR to NL, no parity check, no strip char,
-     * no start/stop output control. */
-    raw.c_iflag &= ~(ICRNL | INPCK | ISTRIP | IXON);
-    /* output modes - disable post processing */
-    raw.c_oflag &= ~(OPOST);
-    /* control modes - set 8 bit chars */
-    raw.c_cflag |= (CS8);
-    /* local modes - choing off, canonical off, no extended functions,
-     * no signal chars (^Z,^C) */
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
-    /* control chars - set return condition: min number of bytes and timer.
-     * We want read to return every single byte, without timeout. */
-    raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
+        raw = orig_termios;  /* modify the original mode */
+        /* input modes: no CR to NL, no parity check, no strip char,
+         * no start/stop output control. */
+        raw.c_iflag &= ~(ICRNL | INLCR | INPCK | ISTRIP | IXON);
+        /* output modes - disable post processing */
+        raw.c_oflag &= ~(OPOST);
+        /* control modes - set 8 bit chars */
+        raw.c_cflag |= (CS8);
+        /* local modes - choing off, canonical off, no extended functions,
+         * no signal chars (^Z,^C) */
+        raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+        /* control chars - set return condition: min number of bytes and timer.
+         * We want read to return every single byte, without timeout. */
+        raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
 
-    /* put terminal in raw mode after flushing */
-    if (tcsetattr(fd,TCSAFLUSH,&raw) < 0) goto fatal;
-    rawmode = 1;
+        /* put terminal in raw mode after flushing */
+        if (tcsetattr(fd,TCSAFLUSH,&raw) < 0) goto fatal;
+        rawmode = 1;
+    }
     return 0;
 
 fatal:
@@ -305,9 +309,11 @@ fatal:
 }
 
 static void disableRawMode(int fd) {
+    int saved_errno = errno;
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
         rawmode = 0;
+    errno = saved_errno;
 }
 
 /* Try to get the number of columns in the current terminal, or assume 80
@@ -620,6 +626,13 @@ static int refreshLine(struct linenoiseState *l) {
     return result;
 }
 
+void resetOnNewline(struct linenoiseState *l)
+{
+    l->maxrows = 0;
+    l->is_displayed = false;
+    l->needs_refresh = true;
+}
+
 static int prepareCustomOutputClearLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
@@ -634,12 +647,17 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
         l->plen = oldstate.plen;
         l->pos = oldstate.pos;
         l->len = oldstate.len;
-        l->maxrows = 0;
 
-        l->needs_refresh = true;
-        l->is_displayed = false;
+        resetOnNewline(l);
     }
     return 0;
+}
+
+void linenoiseCustomOutput()
+{
+    prepareCustomOutputClearLine(&state);
+    if (state.is_async)
+        disableRawMode(state.fd);
 }
 
 static int prepareCustomOutput(struct linenoiseState *l)
@@ -652,10 +670,8 @@ static int prepareCustomOutput(struct linenoiseState *l)
         printf("\r\n");
 
         l->pos = oldstate.pos;
-        l->maxrows = 0;
 
-        l->needs_refresh = true;
-        l->is_displayed = false;
+        resetOnNewline(l);
     }
     return 0;
 }
@@ -822,14 +838,16 @@ int readChar(struct linenoiseState *l)
                         l->read_back_char_len * sizeof(l->read_back_char[0]));
             }
         } else {
-            int pollresult;
+            int pollresult = 1;
             nread = -1;
             do {
                 errno = 0;
                 bool wasBlocked = revertSignals(l);
-                struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
-                // poll is always interrupted by EINTR in case of an interrupt
-                pollresult = poll(fds, 1, -1);
+                if (!l->is_async) {
+                    struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
+                    // poll is always interrupted by EINTR in case of an interrupt
+                    pollresult = poll(fds, 1, -1);
+                }
                 if (pollresult == 1)
                     nread = read(l->fd, &c, 1);
                 if (wasBlocked) (void)blockSignals(l);
@@ -1082,10 +1100,8 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
      * initially is just an empty string. */
     if (l->state == LS_NEW_LINE) {
         /* Buffer starts empty. */
-        l->maxrows = 0;
+        resetOnNewline(l);
         l->pos = l->len = 0;
-        l->buf[0] = '\0';
-        l->is_displayed = false;
         l->buf[0] = '\0';
 
         linenoiseHistoryAdd("");
@@ -1263,6 +1279,7 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     if (enableRawMode(l->fd) == -1) return LR_ERROR;
 
     bool gotBlocked = blockSignals(l);
+
     enum LinenoiseResult result = LR_CONTINUE;
     while (result == LR_CONTINUE) {
         switch (l->state) {
@@ -1279,10 +1296,54 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
 
     int savederrno = errno;
 
-    disableRawMode(l->fd);
+    if (!l->is_async) disableRawMode(l->fd);
     if (gotBlocked) revertSignals(l);
 
     errno = savederrno;
+    return result;
+}
+
+int ensureInitialized(struct linenoiseState *l, const char *prompt)
+{
+    if (isUnsupportedTerm()) {
+        errno = EBADF;
+        return -1;
+    } else {
+        if ( !initialized )
+        {
+            if (initialize(l, prompt) == -1) return -1;
+            initialized = true;
+        }
+        else
+        {
+            linenoiseUpdateSize();
+            if (strcmp(l->prompt, prompt) != 0) {
+                free(l->prompt);
+                l->prompt = strdup(prompt);
+                l->plen = strlen(prompt);
+                l->needs_refresh = true;
+                if (l->prompt == NULL) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+            }
+        }
+
+        int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
+        l->is_async = (flagsRead & O_NONBLOCK) != 0;
+        return 0;
+    }
+}
+
+int linenoiseShowPrompt(const char *prompt)
+{
+    if (ensureInitialized(&state, prompt) == -1) return -1;
+    if (enableRawMode(state.fd) == -1) return -1;
+    int result = 0;
+    if (state.needs_refresh || !state.is_displayed)
+        result = refreshLine(&state);
+    if (result == -1 || !state.is_async)
+        disableRawMode(state.fd);
     return result;
 }
 
@@ -1306,28 +1367,16 @@ char *linenoise(const char *prompt) {
         }
         return strdup(buf);
     } else {
-        errno = 0;
-        if ( !initialized )
-        {
-            if (initialize(prompt) == -1) return NULL;
-            initialized = true;
-        }
-        else
-        {
-            linenoiseUpdateSize();
-            if (strcmp(state.prompt, prompt) != 0) {
-                free(state.prompt);
-                state.prompt = strdup(prompt);
-                state.plen = strlen(prompt);
-                state.needs_refresh = true;
-                if (state.prompt == NULL) return NULL;
-            }
-        }
+        int saved_errno = errno;
+
+        if (ensureInitialized(&state, prompt) == -1) return NULL;
 
         enum LinenoiseResult result = linenoiseRaw(&state);
 
-        if (result == LR_CLOSED || result == LR_CANCELLED || result == LR_HAVE_TEXT)
+        if (result == LR_CLOSED || result == LR_CANCELLED || result == LR_HAVE_TEXT) {
+            resetOnNewline(&state);
             printf("\r\n");
+        }
 
         if (result == LR_CANCELLED) {
             errno = EINTR;
@@ -1341,7 +1390,12 @@ char *linenoise(const char *prompt) {
 
         // Have some text
         char* copy = strndup(state.buf, state.len);
+
+        state.pos = state.len = 0;
+        state.buf[0] = '\0';
+
         if (copy == NULL) errno = ENOMEM;
+        else errno = saved_errno;
 
         return copy;
     }
@@ -1360,19 +1414,19 @@ void linenoiseUpdateSize() {
     }
 }
 
-static int initialize(const char *prompt)
+static int initialize(struct linenoiseState *l, const char *prompt)
 {
     atexit(linenoiseAtExit);
 
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
-    state.buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
-    state.buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
-    state.prompt = strdup(prompt);
-    state.plen = strlen(prompt);
-    state.cols = getColumns();
+    l->buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
+    l->buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
+    l->prompt = strdup(prompt);
+    l->plen = strlen(prompt);
+    l->cols = getColumns();
 
-    if ( state.buf == NULL || state.prompt == NULL )
+    if ( l->buf == NULL || l->prompt == NULL )
     {
         errno = ENOMEM;
         return -1;
