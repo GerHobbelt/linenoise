@@ -51,9 +51,6 @@
  * Todo list:
  * - Win32 support
  *
- * Bloat:
- * - History search like Ctrl+r in readline?
- *
  * List of escape sequences used by this program, we do everything just
  * with three sequences. In order to be so cheap we may have some
  * flickering effect with some slow terminal, but the lesser sequences
