@@ -49,7 +49,6 @@
  * - http://www.ecma-international.org/publications/standards/Ecma-048.htm
  *
  * Todo list:
- * - Filter bogus Ctrl+<char> combinations.
  * - Win32 support
  *
  * Bloat:
@@ -109,6 +108,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
@@ -151,7 +151,8 @@ char **history = NULL;
 enum LinenoiseState {
     LS_NEW_LINE,
     LS_READ,
-    LS_COMPLETION
+    LS_COMPLETION,
+    LS_HISTORY_SEARCH
 };
 
 enum ReadCharSpecials {
@@ -204,6 +205,14 @@ typedef struct linenoiseAnsi {
     int ansi_parameter_len;                 /* Current length of parameter block */
 } linenoiseAnsi;
 
+typedef struct linenoiseHistorySearchState {
+    char *hist_search_buf;
+    size_t hist_search_buflen;
+    size_t hist_search_len;
+    int current_index;
+    bool found;
+} linenoiseHistorySearchState;
+
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
  * functionalities. */
@@ -213,6 +222,8 @@ struct linenoiseState {
     size_t buflen;      /* Edited line buffer size. */
     char *prompt;       /* Prompt to display. */
     size_t plen;        /* Prompt length. */
+    char *tempprompt;   /* Temporary prompt to display. */
+    size_t tempplen;    /* Temporary prompt length. */
     size_t pos;         /* Current cursor position. */
     size_t oldpos;      /* Previous refresh cursor position. */
     size_t oldrpos;     /* Previous cursor row position. */
@@ -232,6 +243,7 @@ struct linenoiseState {
     linenoiseAnsi ansi; /* ANSI escape sequence state machine */
     int read_back_char[READ_BACK_MAX_LEN]; /* Read-back buffer for characters */
     int read_back_char_len;                 /* Number of characters in buffer */
+    linenoiseHistorySearchState hist_search;  /* History search */
 };
 
 static struct linenoiseState state = {
@@ -246,6 +258,7 @@ static int initialize(struct linenoiseState *l, const char *prompt);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
 static int prepareCustomOutput(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
+static int freeHistorySearch(struct linenoiseState *l);
 
 enum SpecialCharacters
 {
@@ -475,13 +488,68 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, char *str, size_t pos) {
 
 /* =========================== Line editing ================================= */
 
+char *getPrompt(struct linenoiseState *l, size_t *plen)
+{
+    if (l->tempprompt != NULL) {
+        if (plen != NULL)
+            *plen = l->tempplen;
+        return l->tempprompt;
+    } else {
+        if (plen != NULL)
+            *plen = l->plen;
+        return l->prompt;
+    }
+}
+
+int setPrompt(struct linenoiseState *l, const char *prompt)
+{
+    char *oldPrompt = getPrompt(l, NULL);
+    if (oldPrompt == NULL || strcmp(oldPrompt, prompt) != 0)
+        l->needs_refresh = true;
+    if (l->prompt == NULL || strcmp(l->prompt, prompt) != 0) {
+        free(l->prompt);
+        l->prompt = strdup(prompt);
+        l->plen = strlen(prompt);
+        if (l->prompt == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int setTempPrompt(struct linenoiseState *l, const char *tempprompt)
+{
+    char *oldPrompt = getPrompt(l, NULL);
+    if ((oldPrompt == NULL && tempprompt != NULL)
+            || (oldPrompt != NULL && tempprompt == NULL)
+            || (oldPrompt != NULL && tempprompt != NULL
+                    && strcmp(oldPrompt, tempprompt) != 0))
+        l->needs_refresh = true;
+
+    if (l->tempprompt != NULL) {
+        free(l->tempprompt);
+        l->tempprompt = NULL;
+    }
+    if (tempprompt != NULL) {
+        l->tempprompt = strdup(tempprompt);
+        l->tempplen = strlen(tempprompt);
+        if (l->tempprompt == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+    return 0;
+}
+
 /* Single line low level line refresh.
  *
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
 static int refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen = l->plen;
+    size_t plen;
+    char *prompt = getPrompt(l, &plen);
     int fd = l->fd;
     char *buf = l->buf;
     size_t len = l->len;
@@ -500,14 +568,14 @@ static int refreshSingleLine(struct linenoiseState *l) {
     if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Write the prompt and the current buffer content */
-    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,l->plen)) == -1) return -1;
+    if (prompt != NULL && plen > 0 && TEMP_FAILURE_RETRY(write(fd,prompt,plen)) == -1) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,buf,len)) == -1) return -1;
     /* Erase to right */
     if (snprintf(seq,64,"\x1b[0K") < 0) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Move cursor to original position. */
     if (pos+plen != 0) {
-        if (snprintf(seq,64,"\x1b[0G\x1b[%dC", (int)(pos+plen)) < 0) return -1;
+        if (snprintf(seq,64,"\x1b[0G\x1b[%zuC", (pos+plen)) < 0) return -1;
         if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
     return 0;
@@ -519,7 +587,8 @@ static int refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static int refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = l->plen;
+    size_t plen;
+    char *prompt = getPrompt(l, &plen);
     int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = l->oldrpos;  /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
@@ -562,7 +631,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     
     /* Write the prompt and the current buffer content */
-    if (TEMP_FAILURE_RETRY(write(fd,l->prompt,l->plen)) == -1) return -1;
+    if (prompt != NULL && plen > 0 && TEMP_FAILURE_RETRY(write(fd,prompt,plen)) == -1) return -1;
     if (TEMP_FAILURE_RETRY(write(fd,l->buf,l->len)) == -1) return -1;
 
     /* If we are at the very end of the screen with our prompt, we need to
@@ -596,9 +665,9 @@ static int refreshMultiLine(struct linenoiseState *l) {
     }
     /* Set column. */
 #ifdef LN_DEBUG
-    fprintf(fp,", set col %d", 1+((plen+(int)l->pos) % (int)l->cols));
+    fprintf(fp,", set col %zu", 1+((plen+l->pos) % l->cols));
 #endif
-    if (snprintf(seq,64,"\x1b[%dG", 1+((plen+(int)l->pos) % (int)l->cols)) < 0) return -1;
+    if (snprintf(seq,64,"\x1b[%zuG", 1+((plen+l->pos) % l->cols)) < 0) return -1;
     if (write(fd,seq,strlen(seq)) == -1) return -1;
 
     l->oldpos = l->pos;
@@ -637,14 +706,14 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
         struct linenoiseState oldstate = *l;
-        l->prompt = "";
-        l->plen = 0;
+        l->tempprompt = "";
+        l->tempplen = 0;
         l->len = l->pos = 0;
 
         if (refreshLine(l) == -1) return -1;
 
-        l->prompt = oldstate.prompt;
-        l->plen = oldstate.plen;
+        l->tempprompt = oldstate.tempprompt;
+        l->tempplen = oldstate.tempplen;
         l->pos = oldstate.pos;
         l->len = oldstate.len;
 
@@ -921,7 +990,7 @@ int readChar(struct linenoiseState *l)
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
 int linenoiseEditInsert(struct linenoiseState *l, int c) {
-    if (c > 0) {
+    if (c >= 32) {
         if (l->len < l->buflen) {
             if (l->len == l->pos) {
                 l->buf[l->pos] = c;
@@ -999,6 +1068,36 @@ int linenoiseEditMoveRight(struct linenoiseState *l) {
         return 0;
 }
 
+int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
+    if (history_len > 1) {
+        free(history[history_len - 1 - l->history_index]);
+        history[history_len - 1 - l->history_index] = strdup(l->buf);
+        if (history[history_len - 1 - l->history_index] == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
+    l->history_index = index;
+    if (l->history_index < 0) {
+        l->history_index = 0;
+        return 0;
+    } else if (l->history_index >= history_len) {
+        l->history_index = history_len - 1;
+        return 0;
+    }
+    size_t hist_strlen = strlen(history[history_len - 1 - l->history_index]);
+    if (ensureBufLen(l, hist_strlen) == -1) return -1;
+    memcpy(l->buf, history[history_len - 1 - l->history_index], hist_strlen+1);
+    l->len = strlen(l->buf);
+    l->pos = MIN(l->len, pos);
+    return refreshLine(l);
+
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
@@ -1007,22 +1106,11 @@ int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     if (history_len > 1) {
         /* Update the current history entry before to
          * overwrite it with the next one. */
-        free(history[history_len - 1 - l->history_index]);
-        history[history_len - 1 - l->history_index] = strdup(l->buf);
+        if (linenoiseEditUpdateHistoryEntry(l) == -1) return -1;
+
         /* Show the new entry */
-        l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
-        if (l->history_index < 0) {
-            l->history_index = 0;
-            return 0;
-        } else if (l->history_index >= history_len) {
-            l->history_index = history_len-1;
-            return 0;
-        }
-        size_t hist_strlen = strlen(history[history_len - 1 - l->history_index]);
-        if (ensureBufLen(l, hist_strlen) == -1) return -1;
-        memcpy(l->buf, history[history_len - 1 - l->history_index], hist_strlen+1);
-        l->len = l->pos = strlen(l->buf);
-        return refreshLine(l);
+        int new_index = l->history_index + ((dir == LINENOISE_HISTORY_PREV) ? 1 : -1);
+        return linenoiseShowHistoryEntry(l, new_index, SIZE_MAX);
     }
     else
         return 0;
@@ -1066,11 +1154,13 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     return refreshLine(l);
 }
 
-void resetState(struct linenoiseState *l)
+int resetState(struct linenoiseState *l)
 {
     if (l->state != LS_NEW_LINE) {
         if (l->state == LS_COMPLETION) {
             freeCompletions(l);
+        } else if (l->state == LS_HISTORY_SEARCH) {
+            if (freeHistorySearch(l) == -1) return -1;
         }
 
         history_len--;
@@ -1078,12 +1168,13 @@ void resetState(struct linenoiseState *l)
 
         l->state = LS_NEW_LINE;
     }
+    return 0;
 }
 
-void setClosed(struct linenoiseState *l)
+int setClosed(struct linenoiseState *l)
 {
-    resetState(l);
     l->is_closed = true;
+    return resetState(l);
 }
 
 /* This function is the core of the line editing capability of linenoise.
@@ -1105,6 +1196,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         l->buf[0] = '\0';
 
         linenoiseHistoryAdd("");
+        l->history_index = 0;
         l->state = LS_READ;
     }
 
@@ -1114,31 +1206,30 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
     int c = readChar(l);
 
     if (c == RCS_CLOSED) {
-        setClosed(l);
+        if (setClosed(l) == -1) return LR_ERROR;
         return LR_CLOSED;
     }
     else if (c == RCS_ERROR) {
         return LR_ERROR;
     }
 
-    /* Only autocomplete when the callback is set. It returns < 0 when
-     * there was an error reading from fd. Otherwise it will return the
-     * character that should be handled next. */
-    if (c == 9 && completionCallback != NULL) {
-        pushFrontChar(l, c);
-        l->state = LS_COMPLETION;
-        return LR_CONTINUE;
-    }
-
     switch(c) {
     case 13:    /* enter */
-        resetState(l);
+        if (resetState(l) == -1) return LR_ERROR;
         return LR_HAVE_TEXT;
     case RCS_CANCELLED:
     case 3:     /* ctrl-c */
+    {
+        bool doCancel = (l->len == 0);
         if (cancelInternal(l) == -1) return LR_ERROR;
-        resetState(l);
-        return LR_CANCELLED;
+        if (resetState(l) == -1) return LR_ERROR;
+        if (doCancel)
+            return LR_CANCELLED;
+        else {
+            if (printf("\r\n") < 0) return LR_ERROR;
+            return LR_CONTINUE;
+        }
+    }
     case 127:   /* backspace */
     case 8:     /* ctrl-h */
         if (linenoiseEditBackspace(l) == -1) return LR_ERROR;
@@ -1148,7 +1239,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         if (l->len > 0) {
             if (linenoiseEditDelete(l) == -1) return LR_ERROR;
         } else {
-            setClosed(l);
+            if (setClosed(l) == -1) return LR_ERROR;
             return LR_CLOSED;
         }
         break;
@@ -1197,9 +1288,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     default:
-        if (c > 0) {
-            if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
-        }
+        if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
         break;
     case 21: /* Ctrl+u, delete the whole line. */
         l->buf[0] = '\0';
@@ -1226,6 +1315,23 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
     case 23: /* ctrl+w, delete previous word */
         if (linenoiseEditDeletePrevWord(l) == -1) return LR_ERROR;
         break;
+    case 9:  /* tab, complete */
+        /* Only autocomplete when the callback is set. It returns < 0 when
+         * there was an error reading from fd. Otherwise it will return the
+         * character that should be handled next. */
+        if (completionCallback != NULL) {
+            pushFrontChar(l, c);
+            l->state = LS_COMPLETION;
+            return LR_CONTINUE;
+        } else {
+            if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
+        }
+        break;
+    case 18: /* ctrl+r, search the history */
+        if (linenoiseEditUpdateHistoryEntry(l) == -1) return -1;
+        pushFrontChar(l, c);
+        l->state = LS_HISTORY_SEARCH;
+        return LR_CONTINUE;
     }
 
     return LR_CONTINUE;
@@ -1245,8 +1351,10 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
     int c = readChar(l);
 
     switch (c) {
+    case 3:
     case RCS_CANCELLED:
     case RCS_CLOSED:
+    default:
         // Let the normal processing to do its job
         freeCompletions(l);
         pushFrontChar(l, c);
@@ -1258,11 +1366,150 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
         if (wasInitialized || l->comp.len < 2)
             completeLine(l);
         return LR_CONTINUE;
-    default:
-        freeCompletions(l);
+    }
+}
+
+/* Free a list of completion option populated by linenoiseAddCompletion(). */
+static int freeHistorySearch(struct linenoiseState *l) {
+    if (l->hist_search.hist_search_buf != NULL) {
+        free(l->hist_search.hist_search_buf);
+        l->hist_search.hist_search_buf = NULL;
+        l->hist_search.hist_search_len = l->hist_search.hist_search_buflen = 0;
+        l->hist_search.current_index = 0;
+        l->hist_search.found = false;
+        if (setTempPrompt(l, NULL) == -1) return -1;
+    }
+    return 0;
+}
+
+int setSearchPrompt(struct linenoiseState *l)
+{
+    size_t promptlen = l->hist_search.hist_search_len + 23;
+    char* newprompt = calloc(1, promptlen);
+    if (newprompt == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+    snprintf(newprompt, promptlen, "(reverse-i-search`%s'): ", l->hist_search.hist_search_buf);
+    newprompt[promptlen-1] = '\0';
+    return setTempPrompt(l, newprompt);
+}
+
+int linenoiseHistoryFindEntry(struct linenoiseState *l)
+{
+    if (l->hist_search.hist_search_len > 0) {
+        int new_index = l->hist_search.current_index;
+        while (new_index < history_len) {
+            char *historyStr = history[history_len - 1 - new_index];
+            char *found = strstr(historyStr, l->hist_search.hist_search_buf);
+            char *last_found = NULL;
+            while (found != NULL) {
+                last_found = found;
+                found = strstr(last_found + 1, l->hist_search.hist_search_buf);
+            }
+            if (last_found != NULL) {
+                if (setSearchPrompt(l) == -1) return LR_ERROR;
+                l->hist_search.found = true;
+                if (linenoiseShowHistoryEntry(l, new_index,
+                        last_found - historyStr
+                                + l->hist_search.hist_search_len) == -1) return -1;
+                l->hist_search.current_index = l->history_index;
+                return 0;
+            }
+            new_index++;
+        }
+        linenoiseBeep();
+    }
+    l->hist_search.found = false;
+    return 0;
+}
+static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
+{
+    int c = readChar(l);
+
+    switch (c) {
+    case 3:
+    case RCS_CANCELLED:
+        if (cancelInternal(l) == -1) return LR_ERROR;
+        if (printf("\r\n") < 0) return LR_ERROR;
+        if (resetState(l) == -1) return LR_ERROR;
+        return LR_CONTINUE;
+    case RCS_CLOSED:
+        // Let the normal processing to do its job
+        if (freeHistorySearch(l) == -1) return LR_ERROR;
         pushFrontChar(l, c);
         l->state = LS_READ;
         return LR_CONTINUE;
+    case RCS_ERROR:
+        return LR_ERROR;
+    case 127:   /* backspace */
+    case 8:     /* ctrl-h */
+        if (l->hist_search.hist_search_len > 0) {
+            l->hist_search.hist_search_len--;
+            l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
+            if (l->hist_search.found)
+                l->hist_search.current_index++;
+            if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
+        }
+        return LR_CONTINUE;
+    default:
+        if (c >= 32) {
+            size_t newlen = l->hist_search.hist_search_len + 1;
+            if (newlen >= l->hist_search.hist_search_buflen) {
+                size_t newsize = l->hist_search.hist_search_buflen + LINENOISE_LINE_INIT_MAX_AND_GROW;
+                char *newbuf = realloc(l->hist_search.hist_search_buf, newsize);
+                if (newbuf == NULL) {
+                    errno = ENOMEM;
+                    return LR_ERROR;
+                }
+            }
+            l->hist_search.hist_search_buf[l->hist_search.hist_search_len++] = c;
+            l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
+            // Find history entry
+            bool wasFound = l->hist_search.found;
+            if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
+            if (wasFound && !l->hist_search.found)
+                l->hist_search.current_index++;
+            return LR_CONTINUE;
+        } else {
+            // Cancel
+            if (freeHistorySearch(l) == -1) return LR_ERROR;
+            pushFrontChar(l, c);
+            l->state = LS_READ;
+            return LR_CONTINUE;
+        }
+    case 18:
+        if (l->hist_search.hist_search_buf == NULL) {
+            // First search
+            if (history_len == 1) {
+                linenoiseBeep();
+                l->state = LS_READ;
+                return LR_CONTINUE;
+            }
+            l->hist_search.current_index = l->history_index;
+            l->hist_search.hist_search_buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
+            if (l->hist_search.hist_search_buf == NULL) {
+                errno = ENOMEM;
+                return LR_ERROR;
+            }
+            l->hist_search.hist_search_buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
+            l->hist_search.hist_search_len = 0;
+            if (setSearchPrompt(l) == -1) return LR_ERROR;
+            if (refreshLine(l) == -1) return LR_ERROR;
+            return LR_CONTINUE;
+        } else if (l->hist_search.hist_search_len > 0) {
+            // Find another history entry
+            if (l->hist_search.found) {
+                l->hist_search.current_index++;
+                if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
+            } else {
+                linenoiseBeep();
+            }
+            return LR_CONTINUE;
+        } else {
+            // Do nothing - no string to search for
+            return LR_CONTINUE;
+        }
     }
 }
 
@@ -1283,13 +1530,16 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     enum LinenoiseResult result = LR_CONTINUE;
     while (result == LR_CONTINUE) {
         switch (l->state) {
-        case LS_COMPLETION:
-            result = linenoiseCompletion(l);
-            break;
         case LS_NEW_LINE:
         case LS_READ:
         default:
             result = linenoiseEdit(l);
+            break;
+        case LS_COMPLETION:
+            result = linenoiseCompletion(l);
+            break;
+        case LS_HISTORY_SEARCH:
+            result = linenoiseHistorySearch(l);
             break;
         }
     }
@@ -1317,16 +1567,7 @@ int ensureInitialized(struct linenoiseState *l, const char *prompt)
         else
         {
             linenoiseUpdateSize();
-            if (strcmp(l->prompt, prompt) != 0) {
-                free(l->prompt);
-                l->prompt = strdup(prompt);
-                l->plen = strlen(prompt);
-                l->needs_refresh = true;
-                if (l->prompt == NULL) {
-                    errno = ENOMEM;
-                    return -1;
-                }
-            }
+            if (setPrompt(l, prompt) == -1) return -1;
         }
 
         int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
@@ -1421,16 +1662,15 @@ static int initialize(struct linenoiseState *l, const char *prompt)
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
     l->buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
-    l->buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
-    l->prompt = strdup(prompt);
-    l->plen = strlen(prompt);
-    l->cols = getColumns();
-
-    if ( l->buf == NULL || l->prompt == NULL )
-    {
+    if (l->buf == NULL) {
         errno = ENOMEM;
         return -1;
     }
+
+    l->buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
+    l->cols = getColumns();
+
+    if (setPrompt(l, prompt) == -1) return -1;
 
     return 0;
 }
