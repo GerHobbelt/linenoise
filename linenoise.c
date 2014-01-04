@@ -1026,7 +1026,7 @@ int cancelInternal(struct linenoiseState *l)
 {
     if (l->pos + 2 <= l->len) {
         l->buf[l->pos] = '^';
-        l->buf[l->pos] = 'C';
+        l->buf[l->pos + 1] = 'C';
         l->pos = l->len;
         if (refreshLine(l) == -1) return -1;
     } else if (l->pos + 1 == l->len) {
