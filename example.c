@@ -71,6 +71,9 @@ int main(int argc, char **argv) {
     if (async)
         signal(SIGALRM, sigalrm_handler);
 
+    /* Set the prompt. */
+    linenoiseSetPrompt("hello> ");
+
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
     linenoiseSetCompletionCallback(completion);
@@ -88,7 +91,7 @@ int main(int argc, char **argv) {
     int found_error = 0;
     do {
         if (async) {
-            linenoiseShowPrompt("hello> ");
+            linenoiseShowPrompt();
 
             int pollresult;
             struct pollfd fds[1] = {{STDIN_FILENO, POLLIN, 0}};
@@ -100,7 +103,7 @@ int main(int argc, char **argv) {
         }
 
         errno = 0;
-        line = linenoise("hello> ");
+        line = linenoise();
         found_error = errno;
         if (line != NULL) {
             /* Do something with the string. */

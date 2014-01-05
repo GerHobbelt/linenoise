@@ -98,26 +98,32 @@ void linenoiseCancel();
  */
 void linenoiseUpdateSize();
 
+/** Sets the prompt.
+ *
+ * @param prompt new prompt
+ * @return Returns 0 on success, or -1 on error. See errno for details.
+ */
+int linenoiseSetPrompt(const char *prompt);
+
 /**
  * Shows the prompt without reading any character.
  *
  * The method cannot be used for non-ANSI terminal, in which case the method
  * returns -1 and sets errno to EBADF.
  *
- * Returns 0 on success, or -1 on error. See errno for details.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseShowPrompt(const char *prompt);
+int linenoiseShowPrompt();
 
 /**
  * Gathers the line from input.
  *
- * @param prompt the prompt to be used
  * @return Text when the full line is read, or NULL in case of error. The errno
  * could be 0 if the file descriptor has been closed, or EINTR in case of
  * CTRL+C, or ENOMEM in case of memory allocation failure, or other values
  * that depend on the file descriptor type.
  */
-char *linenoise(const char *prompt);
+char *linenoise();
 
 /**
  * Adds line of history.

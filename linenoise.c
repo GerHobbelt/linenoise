@@ -255,7 +255,7 @@ static bool initialized = false;        /* True if line editing has been initial
 
 static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
-static int initialize(struct linenoiseState *l, const char *prompt);
+static int initialize(struct linenoiseState *l);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
 static int prepareOutputOnNewLine(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
@@ -1629,7 +1629,7 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
 }
 
 /* Ensure the fields are initialized. */
-int ensureInitialized(struct linenoiseState *l, const char *prompt)
+int ensureInitialized(struct linenoiseState *l)
 {
     if (isUnsupportedTerm()) {
         errno = EBADF;
@@ -1637,13 +1637,12 @@ int ensureInitialized(struct linenoiseState *l, const char *prompt)
     } else {
         if ( !initialized )
         {
-            if (initialize(l, prompt) == -1) return -1;
+            if (initialize(l) == -1) return -1;
             initialized = true;
         }
         else
         {
             linenoiseUpdateSize();
-            if (setPrompt(l, prompt) == -1) return -1;
         }
 
         int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
@@ -1652,10 +1651,16 @@ int ensureInitialized(struct linenoiseState *l, const char *prompt)
     }
 }
 
-/* Show the prompt. */
-int linenoiseShowPrompt(const char *prompt)
+int linenoiseSetPrompt(const char *prompt)
 {
-    if (ensureInitialized(&state, prompt) == -1) return -1;
+    if (ensureInitialized(&state) == -1) return -1;
+    return setPrompt(&state, prompt);
+}
+
+/* Show the prompt. */
+int linenoiseShowPrompt()
+{
+    if (ensureInitialized(&state) == -1) return -1;
     if (enableRawMode(state.fd) == -1) return -1;
     int result = 0;
     if (state.needs_refresh || !state.is_displayed)
@@ -1670,12 +1675,12 @@ int linenoiseShowPrompt(const char *prompt)
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
-char *linenoise(const char *prompt) {
+char *linenoise() {
     if (isUnsupportedTerm()) {
         char buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
         size_t len;
 
-        printf("%s",prompt);
+        printf("%s",state.prompt);
         fflush(stdout);
         if (fgets(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) return NULL;
         len = strlen(buf);
@@ -1687,7 +1692,7 @@ char *linenoise(const char *prompt) {
     } else {
         int saved_errno = errno;
 
-        if (ensureInitialized(&state, prompt) == -1) return NULL;
+        if (ensureInitialized(&state) == -1) return NULL;
 
         enum LinenoiseResult result = linenoiseRaw(&state);
 
@@ -1735,7 +1740,7 @@ void linenoiseUpdateSize() {
 }
 
 /* Initialize the state */
-static int initialize(struct linenoiseState *l, const char *prompt)
+static int initialize(struct linenoiseState *l)
 {
     atexit(linenoiseAtExit);
 
@@ -1753,8 +1758,6 @@ static int initialize(struct linenoiseState *l, const char *prompt)
 
     l->buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
     l->cols = getColumns();
-
-    if (setPrompt(l, prompt) == -1) return -1;
 
     return 0;
 }
