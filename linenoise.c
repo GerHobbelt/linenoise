@@ -116,14 +116,14 @@
 #include "linenoise.h"
 
 typedef struct linenoiseSingleCompletion {
-    char *text;
-    size_t pos;
+    char *text;         /* Completion text */
+    size_t pos;         /* Cursor position */
 } linenoiseSingleCompletion;
 
 struct linenoiseCompletions {
-  bool is_initialized;
-  size_t len;
-  size_t max_strlen;
+  bool is_initialized;  /* True if completions are initialized. */
+  size_t len;           /* Current number of completions. */
+  size_t max_strlen;    /* Maximum completion text length. */
   linenoiseSingleCompletion *cvec;
 };
 
@@ -146,68 +146,68 @@ static int history_len = 0;
 char **history = NULL;
 
 enum LinenoiseState {
-    LS_NEW_LINE,
-    LS_READ,
-    LS_COMPLETION,
-    LS_HISTORY_SEARCH
+    LS_NEW_LINE,        /* Processing new line. */
+    LS_READ,            /* Reading new line. */
+    LS_COMPLETION,      /* Completing with TAB. */
+    LS_HISTORY_SEARCH   /* Searching with CTRL+R. */
 };
 
 enum ReadCharSpecials {
-    RCS_NONE = 0,
-    RCS_ERROR = -1,
-    RCS_CLOSED = -2,
-    RCS_CANCELLED = -3,
-    RCS_ANSI_CURSOR_LEFT = -4,
-    RCS_ANSI_CURSOR_RIGHT = -5,
-    RCS_ANSI_CURSOR_UP = -6,
-    RCS_ANSI_CURSOR_DOWN = -7,
-    RCS_ANSI_DELETE = -8,
-    RCS_ANSI_HOME = -9,
-    RCS_ANSI_END = -10
+    RCS_NONE = 0,               /* No character read. */
+    RCS_ERROR = -1,             /* Error. */
+    RCS_CLOSED = -2,            /* Connection has been closed. */
+    RCS_CANCELLED = -3,         /* Line editing has been cancelled. */
+    RCS_ANSI_CURSOR_LEFT = -4,  /* Left key. */
+    RCS_ANSI_CURSOR_RIGHT = -5, /* Right key. */
+    RCS_ANSI_CURSOR_UP = -6,    /* Up key. */
+    RCS_ANSI_CURSOR_DOWN = -7,  /* Down key. */
+    RCS_ANSI_DELETE = -8,       /* Delete key. */
+    RCS_ANSI_HOME = -9,         /* Home key. */
+    RCS_ANSI_END = -10          /* End key. */
 };
 
 enum AnsiEscapeState {
-    AES_NONE = 0,
-    AES_INTERMEDIATE = 1,
-    AES_CSI_PARAMETER = 2,
-    AES_CSI_INTERMEDIATE = 3,
-    AES_SS_CHARACTER = 4,
-    AES_FINAL = 5
+    AES_NONE = 0,               /* Not in escape sequence. */
+    AES_INTERMEDIATE = 1,       /* Intermediate sequence. */
+    AES_CSI_PARAMETER = 2,      /* Inside CSI parameter sequence. */
+    AES_CSI_INTERMEDIATE = 3,   /* Inside CSI intermediate sequence. */
+    AES_SS_CHARACTER = 4,       /* Reading SS2 or SS3 character value. */
+    AES_FINAL = 5               /* Read final character. */
 };
 
-enum AnsiCharacterSet {
-    ACS_C1,
-    ACS_CSI,
-    ACS_G2,
-    ACS_G3
+enum AnsiSequenceMeaning {
+    ASM_C1,     /** Read C1 escape sequence. */
+    ASM_CSI,    /** Read CSI escape sequence. */
+    ASM_G2,     /** Read SS2 escape and a character value. */
+    ASM_G3      /** Read SS3 escape and a character value. */
 };
 
 enum LinenoiseResult {
-    LR_HAVE_TEXT = 1,
-    LR_CLOSED = 0,
-    LR_ERROR = -1,
-    LR_CANCELLED = -2,
-    LR_CONTINUE = -3
+    LR_HAVE_TEXT = 1,   /** Text is available to be returned. */
+    LR_CLOSED = 0,      /** Connection has been closed with no text to be returned. */
+    LR_ERROR = -1,      /** Error occurred. */
+    LR_CANCELLED = -2,  /** Current line editing has been cancelled. */
+    LR_CONTINUE = -3    /** Continue reading next character. */
 };
 
 typedef struct linenoiseAnsi {
     enum AnsiEscapeState ansi_state;    /* ANSI sequence reading state */
     char ansi_escape[ANSI_ESCAPE_MAX_LEN + 1];  /* RAW read ANSI escape sequence */
-    char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];
-    char ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];
-    char ansi_final;
-    enum AnsiCharacterSet ansi_character_set;
+    char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];    /* Intermediate sequence. */
+    char ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];   /* Parameter sequence. */
+    char ansi_final;    /* Final character of sequence. */
+    enum AnsiSequenceMeaning ansi_sequence_meaning;   /* Read sequence meaning. */
     int ansi_escape_len;                    /* Current length of sequence */
     int ansi_intermediate_len;              /* Current length of intermediate block */
     int ansi_parameter_len;                 /* Current length of parameter block */
 } linenoiseAnsi;
 
 typedef struct linenoiseHistorySearchState {
-    char *hist_search_buf;
-    size_t hist_search_buflen;
-    size_t hist_search_len;
-    int current_index;
-    bool found;
+    char *hist_search_buf;          /* Text to be searched. */
+    size_t hist_search_buflen;      /* Buffer length. */
+    size_t hist_search_len;         /* Length of text to be searched. */
+    int current_index;              /* Current history index. */
+    bool found;                     /* True if current text has been fouond. */
 } linenoiseHistorySearchState;
 
 /* The linenoiseState structure represents the state during line editing.
@@ -231,37 +231,31 @@ struct linenoiseState {
     bool is_async;      /* True when the STDIN is in O_NONBLOCK mode. */
     bool needs_refresh; /* True when the lines need to be refreshed. */
     bool is_displayed;  /* True when the prompt has been displayed. */
-    bool is_cancelled;   /* True when the input has been cancelled (CTRL+C). */
+    bool is_cancelled;  /* True when the input has been cancelled (CTRL+C). */
     bool is_closed;     /* True once the input has been closed. */
     enum LinenoiseState state;  /* Internal state. */
     linenoiseCompletions comp;  /* Line completions. */
     bool sigint_blocked;   /* True when the SIGINT is blocked. */
-    sigset_t sigint_oldmask;    /* Old signal mask */
-    linenoiseAnsi ansi; /* ANSI escape sequence state machine */
-    int read_back_char[READ_BACK_MAX_LEN]; /* Read-back buffer for characters */
-    int read_back_char_len;                 /* Number of characters in buffer */
-    linenoiseHistorySearchState hist_search;  /* History search */
+    sigset_t sigint_oldmask;    /* Old signal mask. */
+    linenoiseAnsi ansi; /* ANSI escape sequence state machine. */
+    int read_back_char[READ_BACK_MAX_LEN];      /* Read-back buffer for characters. */
+    int read_back_char_len;                     /* Number of characters in buffer. */
+    linenoiseHistorySearchState hist_search;    /* History search. */
 };
 
-static struct linenoiseState state = {
+static struct linenoiseState state = {      /* Line editing state. */
         fd: STDIN_FILENO,
         state: LS_NEW_LINE,
 };
-static bool initialized = false;
+static bool initialized = false;        /* True if line editing has been initialized. */
 
 static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
 static int initialize(struct linenoiseState *l, const char *prompt);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
-static int prepareCustomOutput(struct linenoiseState *l);
+static int prepareOutputOnNewLine(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
 static int freeHistorySearch(struct linenoiseState *l);
-
-enum SpecialCharacters
-{
-    SC_ERROR    = -1,
-    SC_CLOSED    = -2,
-};
 
 /* ======================= Low level terminal handling ====================== */
 
@@ -318,6 +312,7 @@ fatal:
     return -1;
 }
 
+/* Disable raw mode. */
 static void disableRawMode(int fd) {
     int saved_errno = errno;
     /* Don't even check the return value as it's too late. */
@@ -335,6 +330,7 @@ static int getColumns(void) {
     return ws.ws_col;
 }
 
+/* Block SIGINT and SIGWINCH signals. */
 static bool blockSignals(struct linenoiseState *ls) {
     if (!ls->sigint_blocked) {
         int old_errno = errno;
@@ -352,6 +348,7 @@ static bool blockSignals(struct linenoiseState *ls) {
     }
 }
 
+/* Re-enable SIGINT and SIGWINCH signals. */
 static bool revertSignals(struct linenoiseState *ls) {
     if (ls->sigint_blocked) {
         int old_errno = errno;
@@ -401,6 +398,7 @@ static void freeCompletions(struct linenoiseState *ls) {
     ls->comp.max_strlen = 0;
 }
 
+/* Compare completions, used for Quick sort. */
 static int completitionCompare(const void *first, const void *second)
 {
     linenoiseSingleCompletion *firstcomp = (linenoiseSingleCompletion *) first;
@@ -428,7 +426,7 @@ static int completeLine(struct linenoiseState *ls) {
         if (refreshLine(ls) == -1) return -1;
     } else {
         // Multiple choices - sort them and print
-        if (prepareCustomOutput(ls) == -1) return -1;
+        if (prepareOutputOnNewLine(ls) == -1) return -1;
 
         qsort(ls->comp.cvec, ls->comp.len, sizeof(linenoiseSingleCompletion), completitionCompare);
         size_t colSize = ls->comp.max_strlen + LINENOISE_COL_SPACING;
@@ -485,6 +483,7 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, char *str, size_t pos) {
 
 /* =========================== Line editing ================================= */
 
+/* Get the prompt to be displayed. */
 char *getPrompt(struct linenoiseState *l, size_t *plen)
 {
     if (l->tempprompt != NULL) {
@@ -498,6 +497,7 @@ char *getPrompt(struct linenoiseState *l, size_t *plen)
     }
 }
 
+/* Set the main prompt. */
 int setPrompt(struct linenoiseState *l, const char *prompt)
 {
     char *oldPrompt = getPrompt(l, NULL);
@@ -515,6 +515,8 @@ int setPrompt(struct linenoiseState *l, const char *prompt)
     return 0;
 }
 
+/* Set or reset (in case of NULL argument) the temporary prompt, which has
+ * priority over the main prompt. */
 int setTempPrompt(struct linenoiseState *l, const char *tempprompt)
 {
     char *oldPrompt = getPrompt(l, NULL);
@@ -578,7 +580,7 @@ static int refreshSingleLine(struct linenoiseState *l) {
     return 0;
 }
 
-/* Multi line low level line refresh.
+/* Multi-line low level line refresh.
  *
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
@@ -692,6 +694,7 @@ static int refreshLine(struct linenoiseState *l) {
     return result;
 }
 
+/* Reset the display state when moved to new line. */
 void resetOnNewline(struct linenoiseState *l)
 {
     l->maxrows = 0;
@@ -699,6 +702,8 @@ void resetOnNewline(struct linenoiseState *l)
     l->needs_refresh = true;
 }
 
+/* Prepare output for custom printing with no prompt; undo the raw mode.
+ * Returns 0 on success, -1 on error. */
 static int prepareCustomOutputClearLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
@@ -719,6 +724,7 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
     return 0;
 }
 
+/* Prepare output for custom printing with no prompt; undo the raw mode. */
 void linenoiseCustomOutput()
 {
     prepareCustomOutputClearLine(&state);
@@ -726,7 +732,9 @@ void linenoiseCustomOutput()
         disableRawMode(state.fd);
 }
 
-static int prepareCustomOutput(struct linenoiseState *l)
+/* Prepare custom output on new line.
+ * Returns 0 on success, -1 on error. */
+static int prepareOutputOnNewLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
         struct linenoiseState oldstate = *l;
@@ -742,6 +750,8 @@ static int prepareCustomOutput(struct linenoiseState *l)
     return 0;
 }
 
+/* Ensure that the read buffer is big enough.
+ * Returns 0 on success, -1 on error. */
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen)
 {
     if (l->buflen < requestedStrLen) {
@@ -761,9 +771,11 @@ static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen)
     return 0;
 }
 
+/* Decodes ANSI escape sequence.
+ * Returns ReadCharSpecials or RCS_NONE in case unknown sequence is read. */
 int ansiDecode(struct linenoiseAnsi *la)
 {
-    if (la->ansi_character_set == ACS_CSI) {
+    if (la->ansi_sequence_meaning == ASM_CSI) {
         switch (la->ansi_final)
         {
         case 0x41:
@@ -811,13 +823,15 @@ int ansiDecode(struct linenoiseAnsi *la)
     return RCS_NONE;
 }
 
+/* Add ANSI character sequence and process the state.
+ * Return true in case of success, false on failure. */
 bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
 {
     if (la->ansi_escape_len == 0) {
         la->ansi_escape[la->ansi_escape_len++] = c;
         la->ansi_intermediate_len = 0;
         la->ansi_parameter_len = 0;
-        la->ansi_character_set = ACS_C1;
+        la->ansi_sequence_meaning = ASM_C1;
         la->ansi_state = AES_INTERMEDIATE;
     } else {
         if (la->ansi_state == AES_INTERMEDIATE && c >= 0x20 && c <= 0x2F) {
@@ -837,13 +851,13 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
             la->ansi_escape[la->ansi_escape_len++] = c;
             if (la->ansi_escape_len == 2 && c == 0x5B) {
                 la->ansi_state = AES_CSI_PARAMETER;
-                la->ansi_character_set = ACS_CSI;
+                la->ansi_sequence_meaning = ASM_CSI;
             } else if (la->ansi_escape_len == 2 && c == 0x4E) {
                 la->ansi_state = AES_SS_CHARACTER;
-                la->ansi_character_set = ACS_G2;
+                la->ansi_sequence_meaning = ASM_G2;
             } else if (la->ansi_escape_len == 2 && c == 0x4F) {
                 la->ansi_state = AES_SS_CHARACTER;
-                la->ansi_character_set = ACS_G3;
+                la->ansi_sequence_meaning = ASM_G3;
             } else {
                 la->ansi_final = c;
                 la->ansi_state = AES_FINAL;
@@ -869,6 +883,8 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
     return la->ansi_escape_len != ANSI_ESCAPE_MAX_LEN || la->ansi_state == AES_FINAL;
 }
 
+/* Add character or ReadCharSpecials value to be first returned by next call to
+ * readChar(). Returns true if successful, false if argument was RCS_NONE. */
 bool pushFrontChar(struct linenoiseState *l, int c)
 {
     if (c != RCS_NONE) {
@@ -885,6 +901,9 @@ bool pushFrontChar(struct linenoiseState *l, int c)
     }
 }
 
+/* Read character and decode ANSI escape sequences.
+ * Returns character code (value greater than zero), or one of ReadCharSpecials
+ * values, but never RCS_NONE (0). */
 int readChar(struct linenoiseState *l)
 {
     int result = RCS_NONE;
@@ -1023,6 +1042,7 @@ int linenoiseEditInsert(struct linenoiseState *l, int c) {
     }
 }
 
+/* Cancel the line editing. */
 int cancelInternal(struct linenoiseState *l)
 {
     if (l->pos + 2 <= l->len) {
@@ -1041,10 +1061,7 @@ int cancelInternal(struct linenoiseState *l)
     }
 
     l->len = 0;
-    l->maxrows = 0;
-
-    l->needs_refresh = true;
-    l->is_displayed = false;
+    resetOnNewline(l);
 
     return 0;
 }
@@ -1069,6 +1086,7 @@ int linenoiseEditMoveRight(struct linenoiseState *l) {
         return 0;
 }
 
+/* Update current history entry from the current buffer. */
 int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
     if (history_len > 1) {
         free(history[history_len - 1 - l->history_index]);
@@ -1081,6 +1099,7 @@ int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
     return 0;
 }
 
+/* Show history entry. */
 int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
     l->history_index = index;
     if (l->history_index < 0) {
@@ -1155,6 +1174,7 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     return refreshLine(l);
 }
 
+/* Reset state to readling new line. */
 int resetState(struct linenoiseState *l)
 {
     if (l->state != LS_NEW_LINE) {
@@ -1172,6 +1192,7 @@ int resetState(struct linenoiseState *l)
     return 0;
 }
 
+/* Set closed state. */
 int setClosed(struct linenoiseState *l)
 {
     l->is_closed = true;
@@ -1185,7 +1206,8 @@ int setClosed(struct linenoiseState *l)
  * The resulting string is put into 'buf' when the user type enter, or
  * when ctrl+d is typed.
  *
- * The function returns the length of the current buffer. */
+ * The function returns one of the LinenoiseResult values to indicate the
+ * line editing result. */
 static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
 {
     /* The latest history entry is always our current buffer, that
@@ -1338,6 +1360,8 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
     return LR_CONTINUE;
 }
 
+/* Handle TAB completion.
+ * Returns one of the LinenoiseResult values to indicate the completion result. */
 static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
     bool wasInitialized = l->comp.is_initialized;
     if (!wasInitialized) {
@@ -1383,6 +1407,7 @@ static int freeHistorySearch(struct linenoiseState *l) {
     return 0;
 }
 
+/* Sets the temporary history searching prompt. */
 int setSearchPrompt(struct linenoiseState *l)
 {
     size_t promptlen = l->hist_search.hist_search_len + 23;
@@ -1396,6 +1421,7 @@ int setSearchPrompt(struct linenoiseState *l)
     return setTempPrompt(l, newprompt);
 }
 
+/* Find entry in history matching the current sequence */
 int linenoiseHistoryFindEntry(struct linenoiseState *l)
 {
     if (l->hist_search.hist_search_len > 0) {
@@ -1424,6 +1450,9 @@ int linenoiseHistoryFindEntry(struct linenoiseState *l)
     l->hist_search.found = false;
     return 0;
 }
+
+/* Handle the CTRL+R history searching.
+ * Returns one of the LinenoiseResult values to indicate the searching result. */
 static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
 {
     int c = readChar(l);
@@ -1517,8 +1546,9 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
     }
 }
 
-/* This function calls the line editing function linenoiseEdit() using
- * the STDIN file descriptor set in raw mode. */
+/* This function calls the line editing function corresponding to the state,
+ * it is either linenoiseEdit(), linenoiseCompletion() or
+ * linenoiseHistorySearch(). The terminal is put to raw mode. */
 static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     if (l->is_closed) {
         return LR_CLOSED;
@@ -1557,6 +1587,7 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     return result;
 }
 
+/* Ensure the fields are initialized. */
 int ensureInitialized(struct linenoiseState *l, const char *prompt)
 {
     if (isUnsupportedTerm()) {
@@ -1580,6 +1611,7 @@ int ensureInitialized(struct linenoiseState *l, const char *prompt)
     }
 }
 
+/* Show the prompt. */
 int linenoiseShowPrompt(const char *prompt)
 {
     if (ensureInitialized(&state, prompt) == -1) return -1;
@@ -1646,10 +1678,12 @@ char *linenoise(const char *prompt) {
     }
 }
 
+/* Cancel the current line editing. */
 void linenoiseCancel() {
     state.is_cancelled = true;
 }
 
+/* Update the size. */
 void linenoiseUpdateSize() {
     size_t newCols = getColumns();
     if ( newCols != state.cols )
@@ -1659,6 +1693,7 @@ void linenoiseUpdateSize() {
     }
 }
 
+/* Initialize the state */
 static int initialize(struct linenoiseState *l, const char *prompt)
 {
     atexit(linenoiseAtExit);
@@ -1679,10 +1714,13 @@ static int initialize(struct linenoiseState *l, const char *prompt)
     return 0;
 }
 
+/* Free the state. */
 static void freeState()
 {
     free(state.prompt);
     free(state.buf);
+    freeHistorySearch(&state);
+    freeCompletions(&state);
 }
 
 /* ================================ History ================================= */

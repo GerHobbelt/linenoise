@@ -46,9 +46,29 @@ extern "C"
 struct linenoiseCompletions;
 typedef struct linenoiseCompletions linenoiseCompletions;
 
-typedef void(linenoiseCompletionCallback)(const char *, size_t, linenoiseCompletions *);
-void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
-void linenoiseAddCompletion(linenoiseCompletions *, char *, size_t);
+/**
+ * Completion callback with text and cursor position.
+ *
+ * @param text text to be completed
+ * @param cursor cursor position
+ * @param completions suggested completions structure to be filled
+ */
+typedef void(linenoiseCompletionCallback)(const char *text, size_t cursor, linenoiseCompletions *completions);
+
+/**
+ * Sets completion callback.
+ * @param callback completion callback
+ */
+void linenoiseSetCompletionCallback(linenoiseCompletionCallback *callback);
+
+/**
+ *  * Adds completion suggestion with cursor position.
+ *
+ * @param completions suggested completions structure being filled
+ * @param completion completion to be added
+ * @param cursor cursor position to be used, or SIZE_MAX to place the cursor at the end
+ */
+void linenoiseAddCompletion(linenoiseCompletions *completions, char *completion, size_t cursor);
 
 /**
  * Prepares the line for custom output. The current text is cleared and the
@@ -60,7 +80,10 @@ void linenoiseAddCompletion(linenoiseCompletions *, char *, size_t);
 void linenoiseCustomOutput();
 
 /**
- * Cancels the input.
+ * Cancels the current line editing.
+ *
+ * If the line is empty, EINTR is returned from next call to
+ * linenoise(const char *).
  *
  * Should be called from SIGINT handler or when linenoise(const char *) is not
  * being called.
@@ -77,12 +100,18 @@ void linenoiseUpdateSize();
 
 /**
  * Shows the prompt without reading any character.
+ *
+ * The method cannot be used for non-ANSI terminal, in which case the method
+ * returns -1 and sets errno to EBADF.
+ *
+ * Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseShowPrompt(const char *prompt);
 
 /**
  * Gathers the line from input.
  *
+ * @param prompt the prompt to be used
  * @return Text when the full line is read, or NULL in case of error. The errno
  * could be 0 if the file descriptor has been closed, or EINTR in case of
  * CTRL+C, or ENOMEM in case of memory allocation failure, or other values
@@ -90,11 +119,52 @@ int linenoiseShowPrompt(const char *prompt);
  */
 char *linenoise(const char *prompt);
 
+/**
+ * Adds line of history.
+ *
+ * @param line line to be added
+ * @return Zero on success, -1 on error. See errno for error detail.
+ */
 int linenoiseHistoryAdd(const char *line);
+
+/**
+ * Sets maximum number of lines in history.
+ *
+ * @param len number of history lines
+ * @return Zero on success, -1 on error. See errno for error detail.
+ */
 int linenoiseHistorySetMaxLen(int len);
+
+/**
+ * Saves the current history to file.
+ *
+ * @param filename history file name
+ * @return Zero on success, -1 on error. See errno for error detail.
+ */
 int linenoiseHistorySave(char *filename);
+
+/**
+ * Loads the history from the file.
+ *
+ * @param filename history file name
+ * @return Zero on success, -1 on error. See errno for error detail.
+ */
 int linenoiseHistoryLoad(char *filename);
+
+/**
+ * Clears the screen.
+ *
+ * @return Zero on success, -1 on error. See errno for error detail.
+ */
 int linenoiseClearScreen(void);
+
+/**
+ * Sets single or multi-line.
+ *
+ * The editor is set to single-line initially.
+ *
+ * @param ml non-zero to use multi-line mode, zero for single-line.
+ */
 void linenoiseSetMultiLine(int ml);
 
 #ifdef __cplusplus
