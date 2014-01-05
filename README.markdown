@@ -4,9 +4,10 @@ A minimal, zero-config, BSD licensed, readline replacement, forked from the
 original code at http://github.com/antirez/linenoise.
 
 * Single line editing mode with the usual key bindings implemented.
-* Experimental multi-line editing mode.
+* Multi-line editing mode.
 * History handling.
 * Completion.
+* Bash-like history search.
 * Under 2,000 lines of BSD license source code, the original is under 1,000
   lines of code.
 
