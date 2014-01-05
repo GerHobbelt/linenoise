@@ -1,13 +1,14 @@
 # Linenoise
 
-A minimal, zero-config, BSD licensed, readline replacement used in Redis,
-MongoDB, and Android.
+A minimal, zero-config, BSD licensed, readline replacement, forked from the
+original code at http://github.com/antirez/linenoise.
 
 * Single line editing mode with the usual key bindings implemented.
 * Experimental multi-line editing mode.
 * History handling.
 * Completion.
-* Under 1,000 lines of BSD license source code.
+* Under 2,000 lines of BSD license source code, the original is under 1,000
+  lines of code.
 
 ## Can a line editing library be 20k lines of code?
 
@@ -49,4 +50,4 @@ Please test it everywhere you can and report back!
 Patches should be provided in the respect of linenoise sensibility for small
 easy to understand code.
 
-Send feedbacks to antirez at gmail
+Send feedbacks to oldium dot pro at seznam cz
