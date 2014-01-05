@@ -1448,9 +1448,12 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
         if (l->hist_search.hist_search_len > 0) {
             l->hist_search.hist_search_len--;
             l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
-            if (l->hist_search.found)
-                l->hist_search.current_index++;
-            if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
+            if (l->hist_search.hist_search_len == 0 && l->hist_search.found) {
+                if (setSearchPrompt(l) == -1) return LR_ERROR;
+                if (refreshLine(l) == -1) return LR_ERROR;
+            } else {
+                if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
+            }
         }
         return LR_CONTINUE;
     default:
