@@ -1435,7 +1435,7 @@ int linenoiseHistoryFindEntry(struct linenoiseState *l)
                 found = strstr(last_found + 1, l->hist_search.hist_search_buf);
             }
             if (last_found != NULL) {
-                if (setSearchPrompt(l) == -1) return LR_ERROR;
+                if (setSearchPrompt(l) == -1) return -1;
                 l->hist_search.found = true;
                 if (linenoiseShowHistoryEntry(l, new_index,
                         last_found - historyStr
