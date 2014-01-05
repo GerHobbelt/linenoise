@@ -35,6 +35,11 @@ void sigwinch_handler(int signum)
     linenoiseUpdateSize();
 }
 
+void sigalrm_handler(int signum)
+{
+    (void) signum;
+}
+
 int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
@@ -62,6 +67,9 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, sigint_handler);
     signal(SIGWINCH, sigwinch_handler);
+
+    if (async)
+        signal(SIGALRM, sigalrm_handler);
 
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
@@ -97,7 +105,8 @@ int main(int argc, char **argv) {
         if (line != NULL) {
             /* Do something with the string. */
             if (line[0] != '\0' && line[0] != '/') {
-                linenoiseCustomOutput();    // Needed only in async mode
+                if (async)
+                    linenoiseCustomOutput();
                 printf("echo: '%s'\n", line);
                 linenoiseHistoryAdd(line); /* Add to the history. */
                 linenoiseHistorySave("history.txt"); /* Save the history on disk. */
@@ -106,7 +115,8 @@ int main(int argc, char **argv) {
                 int len = atoi(line+11);
                 linenoiseHistorySetMaxLen(len);
             } else if (line[0] == '/') {
-                linenoiseCustomOutput();    // Needed only in async mode
+                if (async)
+                    linenoiseCustomOutput();
                 printf("Unreconized command: %s\n", line);
             }
             free(line);

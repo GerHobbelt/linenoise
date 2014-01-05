@@ -109,6 +109,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #include <locale.h>
 #include <signal.h>
@@ -191,6 +192,9 @@ enum LinenoiseResult {
 };
 
 typedef struct linenoiseAnsi {
+    timer_t ansi_timer;         /* Timer to differentiate between ESC and ANSI escape sequence. */
+    bool ansi_timer_is_active;  /* True if the timer is active. */
+    int ansi_timer_overrun_count;   /* Overrun count of timer. */
     enum AnsiEscapeState ansi_state;    /* ANSI sequence reading state */
     char ansi_escape[ANSI_ESCAPE_MAX_LEN + 1];  /* RAW read ANSI escape sequence */
     char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];    /* Intermediate sequence. */
@@ -951,6 +955,35 @@ int readChar(struct linenoiseState *l)
             } while (result == RCS_NONE && nread < 0 && errno == EINTR);
         }
 
+        // Check expiration in asynchronous mode
+        if (l->is_async && l->ansi.ansi_timer_is_active) {
+            int old_errno = errno;
+            struct itimerspec timerExpiry = {{0, 0}, {0, 0}};
+            if (timer_gettime(l->ansi.ansi_timer, &timerExpiry) == -1) return -1;
+            if (timerExpiry.it_value.tv_sec == 0 && timerExpiry.it_value.tv_nsec == 0) {
+                // Timer expired - it was an ESC key
+                l->ansi.ansi_timer_is_active = false;
+                if (result != RCS_NONE) {
+                    pushFrontChar(l, result);
+                    result = 27;
+                } else {
+                    if (nread < 0 && (old_errno == EAGAIN || old_errno == EWOULDBLOCK)) {
+                        result = 27;
+                    } else {
+                        pushFrontChar(l, 27);
+                    }
+                }
+            } else if (nread == 1) {
+                // Timer has not expired and we received a key
+                l->ansi.ansi_timer_is_active = false;
+                (void) ansiAddCharacter(&l->ansi, 27);
+
+                struct itimerspec timerDisarm = {{0, 0}, {0, 0}};
+                if (timer_settime(l->ansi.ansi_timer, 0, &timerDisarm, NULL) == -1) return -1;
+            }
+            errno = old_errno;
+        }
+
         if (result == RCS_NONE) {
             if (nread < 0) {
                 result = RCS_ERROR;
@@ -960,28 +993,36 @@ int readChar(struct linenoiseState *l)
                 result = c;
             } else if (l->ansi.ansi_escape_len == 0) {
                 // ANSI escape begin
-                struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
-                int pollresult;
-                bool gotBlocked = blockSignals(l);
-                struct timeval start;
-                gettimeofday(&start, NULL);
-                do {
-                    struct timeval now;
-                    gettimeofday(&now, NULL);
-                    long difference = ((now.tv_sec - start.tv_sec) * 1000L)
-                            + ((now.tv_usec - start.tv_usec) / 1000L);
-                    int waitMs = (int) MIN(ANSI_ESCAPE_WAIT_MS, difference);
-                    if (waitMs < 0) waitMs = 0;
-                    pollresult = poll(fds, 1, waitMs);
-               } while (pollresult < 0 && errno == EINTR);
-                if (gotBlocked) (void)revertSignals(l);
+                if (!l->is_async) {
+                    // Synchronous mode - wait for character
+                    struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
+                    int pollresult;
+                    bool gotBlocked = blockSignals(l);
+                    struct timeval start;
+                    gettimeofday(&start, NULL);
+                    do {
+                        struct timeval now;
+                        gettimeofday(&now, NULL);
+                        long difference = ((now.tv_sec - start.tv_sec) * 1000L)
+                                + ((now.tv_usec - start.tv_usec) / 1000L);
+                        int waitMs = (int) MIN(ANSI_ESCAPE_WAIT_MS, difference);
+                        if (waitMs < 0) waitMs = 0;
+                        pollresult = poll(fds, 1, waitMs);
+                    } while (pollresult < 0 && errno == EINTR);
+                    if (gotBlocked) (void)revertSignals(l);
 
-                if (pollresult < 0) result = RCS_ERROR;
-                if (pollresult == 0) {
-                    // Single ESCAPE
-                    result = c;
+                    if (pollresult < 0) result = RCS_ERROR;
+                    if (pollresult == 0) {
+                        // Single ESCAPE
+                        result = c;
+                    } else {
+                        (void) ansiAddCharacter(&l->ansi, c);
+                    }
                 } else {
-                    (void) ansiAddCharacter(&l->ansi, c);
+                    // Async mode - set the timer
+                    struct itimerspec timerNext = {it_value: {tv_nsec: ANSI_ESCAPE_WAIT_MS * 1000000L}};
+                    if (timer_settime(l->ansi.ansi_timer, 0, &timerNext, NULL) == -1) return -1;
+                    l->ansi.ansi_timer_is_active = true;
                 }
             } else {
                 // ANSI escape continuation
@@ -1698,6 +1739,10 @@ static int initialize(struct linenoiseState *l, const char *prompt)
 {
     atexit(linenoiseAtExit);
 
+    struct sigevent ev = {sigev_notify: SIGEV_SIGNAL, sigev_signo: SIGALRM };
+    if (timer_create(CLOCK_MONOTONIC, &ev, &l->ansi.ansi_timer) == -1)
+        return -1;
+
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
     l->buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
@@ -1717,6 +1762,7 @@ static int initialize(struct linenoiseState *l, const char *prompt)
 /* Free the state. */
 static void freeState()
 {
+    timer_delete(state.ansi.ansi_timer);
     free(state.prompt);
     free(state.buf);
     freeHistorySearch(&state);
