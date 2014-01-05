@@ -129,5 +129,8 @@ int main(int argc, char **argv) {
         }
     } while (line != NULL || (found_error == EWOULDBLOCK || found_error == EAGAIN));
 
+    if (found_error != 0 && found_error != EINTR) {
+        printf("Error: %s\n", strerror(found_error));
+    }
     return 0;
 }

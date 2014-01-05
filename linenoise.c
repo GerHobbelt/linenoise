@@ -1696,19 +1696,28 @@ char *linenoise() {
 
         enum LinenoiseResult result = linenoiseRaw(&state);
 
-        if (result == LR_CLOSED || result == LR_CANCELLED || result == LR_HAVE_TEXT) {
+        if (result == LR_CANCELLED) {
             resetOnNewline(&state);
             printf("\r\n");
-        }
-
-        if (result == LR_CANCELLED) {
             errno = EINTR;
             return NULL;
         } else if (result == LR_CLOSED && state.len == 0) {
+            resetOnNewline(&state);
+            printf("\r\n");
             errno = 0;
             return NULL;
         } else if (result == LR_ERROR) {
+            if (errno != EWOULDBLOCK && errno != EAGAIN) {
+                resetOnNewline(&state);
+                printf("\r\n");
+                if (state.is_async) {
+                    disableRawMode(state.fd);
+                }
+            }
             return NULL;
+        } else if (result == LR_HAVE_TEXT) {
+            resetOnNewline(&state);
+            printf("\r\n");
         }
 
         // Have some text

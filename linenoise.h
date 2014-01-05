@@ -120,8 +120,10 @@ int linenoiseShowPrompt();
  *
  * @return Text when the full line is read, or NULL in case of error. The errno
  * could be 0 if the file descriptor has been closed, or EINTR in case of
- * CTRL+C, or ENOMEM in case of memory allocation failure, or other values
- * that depend on the file descriptor type.
+ * CTRL+C, or EAGAIN/EWOULDBLOCK in case of non-blocking mode, or ENOMEM in case
+ * of memory allocation failure, or other values that depend on the file
+ * descriptor type. In case of error other than EAGAIN/EWOULDBLOCK, the ursor is
+ * moved to new line and TTY raw mode is left automatically.
  */
 char *linenoise();
 
