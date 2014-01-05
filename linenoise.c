@@ -731,7 +731,7 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 /* Prepare output for custom printing with no prompt; undo the raw mode. */
 void linenoiseCustomOutput()
 {
-    prepareCustomOutputClearLine(&state);
+    (void) prepareCustomOutputClearLine(&state);
     if (state.is_async)
         disableRawMode(state.fd);
 }

@@ -38,6 +38,9 @@ void sigwinch_handler(int signum)
 void sigalrm_handler(int signum)
 {
     (void) signum;
+    // This signal just wakes-up the poll method, so that the method linenoise
+    // gets called - this differentiates handling of the ESC key from the ANSI
+    // escape sequences.
 }
 
 int main(int argc, char **argv) {

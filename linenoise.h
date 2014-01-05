@@ -129,7 +129,7 @@ char *linenoise();
  * Adds line of history.
  *
  * @param line line to be added
- * @return Zero on success, -1 on error. See errno for error detail.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseHistoryAdd(const char *line);
 
@@ -137,7 +137,7 @@ int linenoiseHistoryAdd(const char *line);
  * Sets maximum number of lines in history.
  *
  * @param len number of history lines
- * @return Zero on success, -1 on error. See errno for error detail.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseHistorySetMaxLen(int len);
 
@@ -145,7 +145,7 @@ int linenoiseHistorySetMaxLen(int len);
  * Saves the current history to file.
  *
  * @param filename history file name
- * @return Zero on success, -1 on error. See errno for error detail.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseHistorySave(char *filename);
 
@@ -153,14 +153,14 @@ int linenoiseHistorySave(char *filename);
  * Loads the history from the file.
  *
  * @param filename history file name
- * @return Zero on success, -1 on error. See errno for error detail.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseHistoryLoad(char *filename);
 
 /**
  * Clears the screen.
  *
- * @return Zero on success, -1 on error. See errno for error detail.
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseClearScreen(void);
 
