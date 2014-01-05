@@ -796,9 +796,13 @@ int ansiDecode(struct linenoiseAnsi *la)
                 return RCS_ANSI_HOME;
             else
                 break;
-        case 0x7E: {
-            if (strcmp(la->ansi_parameter, "3") == 0)
+        case 0x7E: {    // 0x70 to 0x7E are fpr private use as per ECMA-048
+            if (strcmp(la->ansi_parameter, "1") == 0)
+                return RCS_ANSI_HOME;
+            else if (strcmp(la->ansi_parameter, "3") == 0)
                 return RCS_ANSI_DELETE;
+            if (strcmp(la->ansi_parameter, "4") == 0)
+                return RCS_ANSI_END;
             break;
         }
         default: break;
