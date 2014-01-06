@@ -1472,7 +1472,9 @@ int setSearchPrompt(struct linenoiseState *l)
     }
     snprintf(newprompt, promptlen, "(reverse-i-search`%s'): ", l->hist_search.hist_search_buf);
     newprompt[promptlen-1] = '\0';
-    return setTempPrompt(l, newprompt);
+    int result = setTempPrompt(l, newprompt);
+    free(newprompt);
+    return result;
 }
 
 /* Find entry in history matching the current sequence */
