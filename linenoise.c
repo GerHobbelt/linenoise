@@ -571,6 +571,7 @@ int setTempPrompt(struct linenoiseState *l, const char *tempprompt)
     if (l->tempprompt != NULL) {
         free(l->tempprompt);
         l->tempprompt = NULL;
+        l->tempplen = 0;
     }
     if (tempprompt != NULL) {
         l->tempprompt = strdup(tempprompt);
