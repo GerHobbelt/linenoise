@@ -32,7 +32,7 @@ Since it's so young I guess there are a few bugs, or the lib may not compile or 
 
 The library is currently less than 1000 lines of code. In order to use it in your project just look at the *example.c* file in the source distribution, it is trivial. Linenoise is BSD code, so you can use both in free software and commercial software.
 
-## Tested with...
+## Original linenoise was tested with...
 
  * Linux text only console ($TERM = linux)
  * Linux KDE terminal application ($TERM = xterm)
