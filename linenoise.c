@@ -1727,6 +1727,8 @@ char *linenoise() {
         if (result == LR_CANCELLED) {
             resetOnNewline(&state);
             printf("\r\n");
+            if (state.is_async)
+                disableRawMode(state.fd);
             errno = EINTR;
             return NULL;
         } else if (result == LR_CLOSED && state.len == 0) {
@@ -1738,9 +1740,8 @@ char *linenoise() {
             if (errno != EWOULDBLOCK && errno != EAGAIN) {
                 resetOnNewline(&state);
                 printf("\r\n");
-                if (state.is_async) {
+                if (state.is_async)
                     disableRawMode(state.fd);
-                }
             }
             return NULL;
         } else if (result == LR_HAVE_TEXT) {
