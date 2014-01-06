@@ -117,6 +117,22 @@ int linenoiseSetPrompt(const char *prompt);
 int linenoiseShowPrompt();
 
 /**
+ * Checks if there is a pending character to be processed or the line editing
+ * has been cancelled.
+ *
+ * @return Returns 0 when there is nothing to be read, or non-zero if the
+ * linenoise() method should be called to process pending input.
+ */
+int linenoiseHasPendingChar();
+
+/**
+ * Clean-up the state when the linenoise() method would not be called any more.
+ *
+ * @return Returns 0 on success, or -1 on error. See errno for details.
+ */
+int linenoiseCleanup();
+
+/**
  * Gathers the line from input.
  *
  * @return Text when the full line is read, or NULL in case of error. The errno

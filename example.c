@@ -7,11 +7,13 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <errno.h>
-#include <poll.h>
+#include <sys/select.h>
 #include <ctype.h>
 #include "linenoise.h"
 
 #define POLL_TIMEOUT_MS 10000
+
+bool do_exit = false;
 
 void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
@@ -52,6 +54,12 @@ void sigalrm_handler(int signum)
     // escape sequences.
 }
 
+void sigterm_handler(int signum)
+{
+    (void) signum;
+    do_exit = true;
+}
+
 int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
@@ -79,9 +87,8 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, sigint_handler);
     signal(SIGWINCH, sigwinch_handler);
-
-    if (async)
-        signal(SIGALRM, sigalrm_handler);
+    signal(SIGALRM, sigalrm_handler);
+    signal(SIGTERM, sigterm_handler);
 
     /* Set the prompt. */
     linenoiseSetPrompt("hello> ");
@@ -101,17 +108,33 @@ int main(int argc, char **argv) {
      * The typed string is returned as a malloc() allocated string by
      * linenoise, so the user needs to free() it. */
     int found_error = 0;
+
     do {
         if (async) {
+            // Block signals to have a reliable call to linenoiseHasPendingChar
+            sigset_t set, oldset;
+            sigemptyset(&set);
+            sigaddset(&set, SIGINT);
+            sigaddset(&set, SIGALRM);
+            sigaddset(&set, SIGWINCH);
+            pthread_sigmask(SIG_BLOCK, &set, &oldset);
+
             linenoiseShowPrompt();
 
-            int pollresult;
-            struct pollfd fds[1] = {{STDIN_FILENO, POLLIN, 0}};
-            pollresult = poll(fds, 1, POLL_TIMEOUT_MS);
-            if (pollresult == 0) {
-                linenoiseCustomOutput();
-                printf("* Ping\n");
+            if (!linenoiseHasPendingChar()) {
+                fd_set fds;
+                struct timespec tv = { tv_sec: POLL_TIMEOUT_MS / 1000,
+                        tv_nsec : (POLL_TIMEOUT_MS % 1000) * 1000000L };
+                FD_ZERO(&fds);
+                FD_SET(STDIN_FILENO, &fds);
+                int selectresult = pselect(STDIN_FILENO + 1, &fds, NULL, NULL, &tv, &oldset);
+                if (selectresult == 0) {
+                    linenoiseCustomOutput();
+                    printf("* Ping\n");
+                }
             }
+
+            pthread_sigmask(SIG_SETMASK, &oldset, NULL);
         }
 
         errno = 0;
@@ -136,7 +159,10 @@ int main(int argc, char **argv) {
             }
             free(line);
         }
-    } while (line != NULL || (found_error == EWOULDBLOCK || found_error == EAGAIN));
+    } while ((line != NULL || found_error == EWOULDBLOCK
+            || found_error == EAGAIN) && !do_exit);
+
+    linenoiseCleanup();
 
     if (found_error != 0 && found_error != EINTR) {
         printf("Error: %s\n", strerror(found_error));

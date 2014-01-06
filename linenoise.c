@@ -94,8 +94,6 @@
  * 
  */
 
-#define _GNU_SOURCE
-
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -113,8 +111,11 @@
 #include <unistd.h>
 #include <locale.h>
 #include <signal.h>
-#include <poll.h>
+#include <sys/select.h>
 #include "linenoise.h"
+
+#define RETRY(expression) \
+	( { int result = (expression); while (result == -1 && errno == EINTR ) result = (expression); result; } )
 
 typedef struct linenoiseSingleCompletion {
     char *suggestion;   /* Suggestion to display. */
@@ -331,11 +332,11 @@ static void disableRawMode(int fd) {
 static int getColumns(void) {
     struct winsize ws;
 
-    if (TEMP_FAILURE_RETRY(ioctl(1, TIOCGWINSZ, &ws)) == -1 || ws.ws_col == 0) return 80;
+    if (RETRY(ioctl(1, TIOCGWINSZ, &ws)) == -1 || ws.ws_col == 0) return 80;
     return ws.ws_col;
 }
 
-/* Block SIGINT and SIGWINCH signals. */
+/* Block SIGINT, SIGALRM and SIGWINCH signals. */
 static bool blockSignals(struct linenoiseState *ls) {
     if (!ls->sigint_blocked) {
         int old_errno = errno;
@@ -343,8 +344,9 @@ static bool blockSignals(struct linenoiseState *ls) {
         sigemptyset(&newset);
         sigemptyset(&ls->sigint_oldmask);
         sigaddset(&newset, SIGINT);
+        sigaddset(&newset, SIGALRM);
         sigaddset(&newset, SIGWINCH);
-        sigprocmask(SIG_BLOCK, &newset, &ls->sigint_oldmask);
+        pthread_sigmask(SIG_BLOCK, &newset, &ls->sigint_oldmask);
         ls->sigint_blocked = true;
         errno = old_errno;
         return true;
@@ -353,11 +355,11 @@ static bool blockSignals(struct linenoiseState *ls) {
     }
 }
 
-/* Re-enable SIGINT and SIGWINCH signals. */
+/* Re-enable SIGINT, SIGALRM and SIGWINCH signals. */
 static bool revertSignals(struct linenoiseState *ls) {
     if (ls->sigint_blocked) {
         int old_errno = errno;
-        sigprocmask(SIG_SETMASK, &ls->sigint_oldmask, NULL);
+        pthread_sigmask(SIG_SETMASK, &ls->sigint_oldmask, NULL);
         ls->sigint_blocked = false;
         errno = old_errno;
         return true;
@@ -367,7 +369,7 @@ static bool revertSignals(struct linenoiseState *ls) {
 
 /* Clear the screen. Used to handle ctrl+l */
 int clearScreen(struct linenoiseState *ls) {
-    if (TEMP_FAILURE_RETRY(write(STDIN_FILENO,"\x1b[H\x1b[2J",7)) <= 0) {
+    if (RETRY(write(STDIN_FILENO,"\x1b[H\x1b[2J",7)) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
     ls->needs_refresh = true;
@@ -384,7 +386,7 @@ int linenoiseClearScreen(void) {
  * the choices were already shown. */
 static int linenoiseBeep(void) {
     if (fprintf(stderr, "\x7") < 0) return -1;
-    if (TEMP_FAILURE_RETRY(fflush(stderr)) == -1) return -1;
+    if (RETRY(fflush(stderr)) == -1) return -1;
     return 0;
 }
 
@@ -589,17 +591,17 @@ static int refreshSingleLine(struct linenoiseState *l) {
 
     /* Cursor to left edge */
     if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && plen > 0 && TEMP_FAILURE_RETRY(write(fd,prompt,plen)) == -1) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,buf,len)) == -1) return -1;
+    if (prompt != NULL && plen > 0 && RETRY(write(fd,prompt,plen)) == -1) return -1;
+    if (RETRY(write(fd,buf,len)) == -1) return -1;
     /* Erase to right */
     if (snprintf(seq,64,"\x1b[0K") < 0) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Move cursor to original position. */
     if (pos+plen != 0) {
         if (snprintf(seq,64,"\x1b[0G\x1b[%zuC", (pos+plen)) < 0) return -1;
-        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
     return 0;
 }
@@ -634,7 +636,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
         fprintf(fp,", go down %d", old_rows-rpos);
 #endif
         if (snprintf(seq,64,"\x1b[%dB", old_rows-rpos) < 0) return -1;
-        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
 
     /* Now for every row clear it, go up. */
@@ -643,7 +645,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
         fprintf(fp,", clear+up");
 #endif
         if (snprintf(seq,64,"\x1b[0G\x1b[0K\x1b[1A") < 0) return -1;
-        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
 
     /* Clean the top line. */
@@ -651,11 +653,11 @@ static int refreshMultiLine(struct linenoiseState *l) {
     fprintf(fp,", clear");
 #endif
     if (snprintf(seq,64,"\x1b[0G\x1b[0K") < 0) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && plen > 0 && TEMP_FAILURE_RETRY(write(fd,prompt,plen)) == -1) return -1;
-    if (TEMP_FAILURE_RETRY(write(fd,l->buf,l->len)) == -1) return -1;
+    if (prompt != NULL && plen > 0 && RETRY(write(fd,prompt,plen)) == -1) return -1;
+    if (RETRY(write(fd,l->buf,l->len)) == -1) return -1;
 
     /* If we are at the very end of the screen with our prompt, we need to
      * emit a newline and move the prompt to the first column. */
@@ -666,9 +668,9 @@ static int refreshMultiLine(struct linenoiseState *l) {
 #ifdef LN_DEBUG
         fprintf(fp,", <newline>");
 #endif
-        if (TEMP_FAILURE_RETRY(write(fd,"\n",1)) == -1) return -1;
+        if (RETRY(write(fd,"\n",1)) == -1) return -1;
         if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
-        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
         rows++;
         if (rows > (int)l->maxrows) l->maxrows = rows;
     }
@@ -684,7 +686,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
         fprintf(fp,", go-up %d", rows-rpos2);
 #endif
         if (snprintf(seq,64,"\x1b[%dA", rows-rpos2) < 0) return -1;
-        if (TEMP_FAILURE_RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
     /* Set column. */
 #ifdef LN_DEBUG
@@ -950,19 +952,28 @@ int readChar(struct linenoiseState *l)
                         l->read_back_char_len * sizeof(l->read_back_char[0]));
             }
         } else {
-            int pollresult = 1;
+            int selectresult = 1;
             nread = -1;
+
             do {
                 errno = 0;
-                bool wasBlocked = revertSignals(l);
-                if (!l->is_async) {
-                    struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
-                    // poll is always interrupted by EINTR in case of an interrupt
-                    pollresult = poll(fds, 1, -1);
-                }
-                if (pollresult == 1)
+
+                // pselect is always interrupted by EINTR in case of an interrupt
+                if (l->is_async) {
+                    // Temporarily restore old mask
+                    (void) revertSignals(l);
                     nread = read(l->fd, &c, 1);
-                if (wasBlocked) (void)blockSignals(l);
+                    (void) blockSignals(l);
+                } else {
+                    fd_set fds;
+                    FD_ZERO(&fds);
+                    FD_SET(l->fd, &fds);
+
+                    // Do select with enabled interrupts
+                    selectresult = pselect(l->fd + 1, &fds, NULL, NULL, NULL, &l->sigint_oldmask);
+                    if (selectresult == 1)
+                        nread = read(l->fd, &c, 1);
+                }
 
                 if (l->is_cancelled) {
                     l->is_cancelled = false;
@@ -971,36 +982,36 @@ int readChar(struct linenoiseState *l)
                 if (l->needs_refresh) {
                     if (refreshLine(l) == -1) return -1;
                 }
-            } while (result == RCS_NONE && nread < 0 && errno == EINTR);
-        }
 
-        // Check expiration in asynchronous mode
-        if (l->is_async && l->ansi.ansi_timer_is_active) {
-            int old_errno = errno;
-            struct itimerspec timerExpiry = {{0, 0}, {0, 0}};
-            if (timer_gettime(l->ansi.ansi_timer, &timerExpiry) == -1) return -1;
-            if (timerExpiry.it_value.tv_sec == 0 && timerExpiry.it_value.tv_nsec == 0) {
-                // Timer expired - it was an ESC key
-                l->ansi.ansi_timer_is_active = false;
-                if (result != RCS_NONE) {
-                    pushFrontChar(l, result);
-                    result = 27;
-                } else {
-                    if (nread < 0 && (old_errno == EAGAIN || old_errno == EWOULDBLOCK)) {
-                        result = 27;
-                    } else {
-                        pushFrontChar(l, 27);
+                // Check expiration of ESC key and sequence recognition
+                if (l->ansi.ansi_timer_is_active) {
+                    int old_errno = errno;
+                    struct itimerspec timerExpiry = {{0, 0}, {0, 0}};
+                    if (timer_gettime(l->ansi.ansi_timer, &timerExpiry) == -1) return -1;
+                    if (timerExpiry.it_value.tv_sec == 0 && timerExpiry.it_value.tv_nsec == 0) {
+                        // Timer expired - it was an ESC key
+                        l->ansi.ansi_timer_is_active = false;
+                        if (result != RCS_NONE) {
+                            pushFrontChar(l, result);
+                            result = 27;
+                        } else {
+                            if (nread < 0 && (old_errno == EINTR || old_errno == EAGAIN || old_errno == EWOULDBLOCK)) {
+                                result = 27;
+                            } else {
+                                pushFrontChar(l, 27);
+                            }
+                        }
+                    } else if (nread == 1) {
+                        // Timer has not expired and we received a key
+                        l->ansi.ansi_timer_is_active = false;
+                        (void) ansiAddCharacter(&l->ansi, 27);
+
+                        struct itimerspec timerDisarm = {{0, 0}, {0, 0}};
+                        if (timer_settime(l->ansi.ansi_timer, 0, &timerDisarm, NULL) == -1) return -1;
                     }
+                    errno = old_errno;
                 }
-            } else if (nread == 1) {
-                // Timer has not expired and we received a key
-                l->ansi.ansi_timer_is_active = false;
-                (void) ansiAddCharacter(&l->ansi, 27);
-
-                struct itimerspec timerDisarm = {{0, 0}, {0, 0}};
-                if (timer_settime(l->ansi.ansi_timer, 0, &timerDisarm, NULL) == -1) return -1;
-            }
-            errno = old_errno;
+            } while (result == RCS_NONE && nread < 0 && errno == EINTR);
         }
 
         if (result == RCS_NONE) {
@@ -1011,38 +1022,10 @@ int readChar(struct linenoiseState *l)
             } else if (l->ansi.ansi_escape_len == 0 && c != 27) {
                 result = c;
             } else if (l->ansi.ansi_escape_len == 0) {
-                // ANSI escape begin
-                if (!l->is_async) {
-                    // Synchronous mode - wait for character
-                    struct pollfd fds[1] = {{l->fd, POLLIN, 0}};
-                    int pollresult;
-                    bool gotBlocked = blockSignals(l);
-                    struct timeval start;
-                    gettimeofday(&start, NULL);
-                    do {
-                        struct timeval now;
-                        gettimeofday(&now, NULL);
-                        long difference = ((now.tv_sec - start.tv_sec) * 1000L)
-                                + ((now.tv_usec - start.tv_usec) / 1000L);
-                        int waitMs = (int) MIN(ANSI_ESCAPE_WAIT_MS, difference);
-                        if (waitMs < 0) waitMs = 0;
-                        pollresult = poll(fds, 1, waitMs);
-                    } while (pollresult < 0 && errno == EINTR);
-                    if (gotBlocked) (void)revertSignals(l);
-
-                    if (pollresult < 0) result = RCS_ERROR;
-                    if (pollresult == 0) {
-                        // Single ESCAPE
-                        result = c;
-                    } else {
-                        (void) ansiAddCharacter(&l->ansi, c);
-                    }
-                } else {
-                    // Async mode - set the timer
-                    struct itimerspec timerNext = {it_value: {tv_nsec: ANSI_ESCAPE_WAIT_MS * 1000000L}};
-                    if (timer_settime(l->ansi.ansi_timer, 0, &timerNext, NULL) == -1) return -1;
-                    l->ansi.ansi_timer_is_active = true;
-                }
+                // ANSI escape begin, set the timer
+                struct itimerspec timerNext = {it_value: {tv_nsec: ANSI_ESCAPE_WAIT_MS * 1000000L}};
+                if (timer_settime(l->ansi.ansi_timer, 0, &timerNext, NULL) == -1) return -1;
+                l->ansi.ansi_timer_is_active = true;
             } else {
                 // ANSI escape continuation
                 if (ansiAddCharacter(&l->ansi, c)) {
@@ -1080,7 +1063,7 @@ int linenoiseEditInsert(struct linenoiseState *l, int c) {
                 if ((!mlmode && l->plen+l->len < l->cols) /* || mlmode */) {
                     /* Avoid a full update of the line in the
                      * trivial case. */
-                    if (TEMP_FAILURE_RETRY(write(l->fd,&c,1)) == -1) return -1;
+                    if (RETRY(write(l->fd,&c,1)) == -1) return -1;
                 } else {
                     if (refreshLine(l) == -1) return -1;
                 }
@@ -1274,9 +1257,11 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
      * initially is just an empty string. */
     if (l->state == LS_NEW_LINE) {
         /* Buffer starts empty. */
-        resetOnNewline(l);
-        l->pos = l->len = 0;
-        l->buf[0] = '\0';
+        if (l->pos != 0 || l->len != 0) {
+            l->pos = l->len = 0;
+            l->buf[0] = '\0';
+            l->needs_refresh = true;
+        }
 
         linenoiseHistoryAdd("");
         l->history_index = 0;
@@ -1696,6 +1681,19 @@ int linenoiseShowPrompt()
     if (result == -1 || !state.is_async)
         disableRawMode(state.fd);
     return result;
+}
+
+/* Check if there is anything to process. */
+int linenoiseHasPendingChar()
+{
+    return state.read_back_char_len != 0 || state.is_cancelled;
+}
+
+int linenoiseCleanup()
+{
+	if (prepareCustomOutputOnNewLine(&state) == -1) return -1;
+	disableRawMode(state.fd);
+	return 0;
 }
 
 /* The high level function that is the main API of the linenoise library.
