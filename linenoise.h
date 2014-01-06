@@ -62,7 +62,7 @@ typedef void(linenoiseCompletionCallback)(const char *text, size_t cursor, linen
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *callback);
 
 /**
- *  * Adds completion suggestion with cursor position.
+ * Adds completion suggestion with cursor position.
  *
  * @param completions suggested completions structure being filled
  * @param completion completion to be added

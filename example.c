@@ -8,18 +8,25 @@
 #include <signal.h>
 #include <errno.h>
 #include <poll.h>
+#include <ctype.h>
 #include "linenoise.h"
 
 #define POLL_TIMEOUT_MS 10000
 
 void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
-    if (buf[0] == 'h' || buf[0] == '\0') {
-        linenoiseAddCompletion(lc, "hello", SIZE_MAX);
-        linenoiseAddCompletion(lc, "hello there", SIZE_MAX);
-    }
-    if (buf[0] == 'm' || buf[0] == '\0') {
-        linenoiseAddCompletion(lc, "multi", SIZE_MAX);
+    if (strncmp(buf, "multi kulti", 11) == 0) {
+        // No hints
+    } else if (strncmp(buf, "multi", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
+        linenoiseAddCompletion(lc, "multi kulti", SIZE_MAX);
+    } else {
+        if (buf[0] == 'h' || buf[0] == '\0') {
+            linenoiseAddCompletion(lc, "hello", SIZE_MAX);
+            linenoiseAddCompletion(lc, "hello there", SIZE_MAX);
+        }
+        if (buf[0] == 'm' || buf[0] == '\0') {
+            linenoiseAddCompletion(lc, "multi", SIZE_MAX);
+        }
     }
 }
 
@@ -111,7 +118,7 @@ int main(int argc, char **argv) {
         if (line != NULL) {
             /* Do something with the string. */
             if (line[0] != '\0' && line[0] != '/') {
-                if (async)
+                if (async)  // Can be called also in blocking mode (does nothing)
                     linenoiseCustomOutput();
                 printf("echo: '%s'\n", line);
                 linenoiseHistoryAdd(line); /* Add to the history. */
@@ -121,7 +128,7 @@ int main(int argc, char **argv) {
                 int len = atoi(line+11);
                 linenoiseHistorySetMaxLen(len);
             } else if (line[0] == '/') {
-                if (async)
+                if (async)  // Can be called also in blocking mode (does nothing)
                     linenoiseCustomOutput();
                 printf("Unreconized command: %s\n", line);
             }

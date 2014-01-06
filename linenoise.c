@@ -125,7 +125,7 @@ struct linenoiseCompletions {
   bool is_initialized;  /* True if completions are initialized. */
   size_t len;           /* Current number of completions. */
   size_t max_strlen;    /* Maximum completion text length. */
-  linenoiseSingleCompletion *cvec;
+  linenoiseSingleCompletion *cvec;  /* Array of completions. */
 };
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -249,7 +249,7 @@ struct linenoiseState {
 
 static struct linenoiseState state = {      /* Line editing state. */
         fd: STDIN_FILENO,
-        state: LS_NEW_LINE,
+        state: LS_NEW_LINE
 };
 static bool initialized = false;        /* True if line editing has been initialized. */
 
@@ -257,7 +257,7 @@ static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
 static int initialize(struct linenoiseState *l);
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
-static int prepareOutputOnNewLine(struct linenoiseState *l);
+static int prepareCustomOutputOnNewLine(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
 static int freeHistorySearch(struct linenoiseState *l);
 
@@ -392,9 +392,11 @@ static int linenoiseBeep(void) {
 /* Free a list of completion option populated by linenoiseAddCompletion(). */
 static void freeCompletions(struct linenoiseState *ls) {
     size_t i;
-    for (i = 0; i < ls->comp.len; i++)
-        free(ls->comp.cvec[i].text);
-    free(ls->comp.cvec);
+    if (ls->comp.cvec != NULL) {
+        for (i = 0; i < ls->comp.len; i++)
+            free(ls->comp.cvec[i].text);
+        free(ls->comp.cvec);
+    }
 
     ls->comp.is_initialized = false;
     ls->comp.cvec = NULL;
@@ -419,6 +421,9 @@ static int completitionCompare(const void *first, const void *second)
 static int completeLine(struct linenoiseState *ls) {
     if (ls->comp.len == 0) {
         if (linenoiseBeep() == -1) return -1;
+        if (ls->needs_refresh) {
+            if (refreshLine(ls) == -1) return -1;
+        }
     } else if (ls->comp.len == 1) {
         // Simple case
         size_t new_strlen = strlen(ls->comp.cvec[0].text);
@@ -430,7 +435,7 @@ static int completeLine(struct linenoiseState *ls) {
         if (refreshLine(ls) == -1) return -1;
     } else {
         // Multiple choices - sort them and print
-        if (prepareOutputOnNewLine(ls) == -1) return -1;
+        if (prepareCustomOutputOnNewLine(ls) == -1) return -1;
 
         qsort(ls->comp.cvec, ls->comp.len, sizeof(linenoiseSingleCompletion), completitionCompare);
         size_t colSize = ls->comp.max_strlen + LINENOISE_COL_SPACING;
@@ -468,18 +473,27 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
 void linenoiseAddCompletion(linenoiseCompletions *lc, char *str, size_t pos) {
     size_t len = strlen(str);
     char *copy = malloc(len+1);
+    if (copy == NULL) goto error_cleanup;
     memcpy(copy,str,len+1);
     if (lc->len == 0 || lc->cvec != NULL) {
         linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
-        if (newcvec != NULL) {
-            lc->cvec = newcvec;
-            lc->cvec[lc->len].text = copy;
-            lc->cvec[lc->len].pos = pos;
-        } else {
-            free(lc->cvec);
-            lc->cvec = NULL;
-        }
+        if (newcvec == NULL) goto error_cleanup;
+        lc->cvec = newcvec;
+        lc->cvec[lc->len].text = copy;
+        lc->cvec[lc->len].pos = pos;
     }
+    goto end;
+
+error_cleanup:
+    free(copy);
+
+    size_t i;
+    for (i = 0; i < lc->len; i++)
+        free(lc->cvec[i].text);
+    free(lc->cvec);
+    lc->cvec = NULL;
+
+end:
     if (len > lc->max_strlen)
         lc->max_strlen = len;
     lc->len++;
@@ -732,13 +746,12 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 void linenoiseCustomOutput()
 {
     (void) prepareCustomOutputClearLine(&state);
-    if (state.is_async)
-        disableRawMode(state.fd);
+    disableRawMode(state.fd);
 }
 
 /* Prepare custom output on new line.
  * Returns 0 on success, -1 on error. */
-static int prepareOutputOnNewLine(struct linenoiseState *l)
+static int prepareCustomOutputOnNewLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
         struct linenoiseState oldstate = *l;
@@ -1404,16 +1417,6 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
 /* Handle TAB completion.
  * Returns one of the LinenoiseResult values to indicate the completion result. */
 static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
-    bool wasInitialized = l->comp.is_initialized;
-    if (!wasInitialized) {
-        completionCallback(l->buf, l->pos, &l->comp);
-        if (l->comp.len > 0 && l->comp.cvec == NULL) {
-            errno = ENOMEM;
-            return LR_ERROR;
-        }
-        l->comp.is_initialized = true;
-    }
-
     int c = readChar(l);
 
     switch (c) {
@@ -1429,9 +1432,28 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
     case RCS_ERROR:
         return LR_ERROR;
     case 9:
-        if (wasInitialized || l->comp.len < 2)
-            completeLine(l);
-        return LR_CONTINUE;
+        {
+            bool wasInitialized = l->comp.is_initialized;
+            if (!wasInitialized || l->comp.len == 1) {
+                wasInitialized = false;
+                freeCompletions(l);
+
+                completionCallback(l->buf, l->pos, &l->comp);
+
+                // completion might call linenoiseCustomOutput()
+                if (enableRawMode(l->fd) == -1) return LR_ERROR;
+
+                if (l->comp.len > 0 && l->comp.cvec == NULL) {
+                    errno = ENOMEM;
+                    return LR_ERROR;
+                }
+                l->comp.is_initialized = true;
+            }
+
+            if (wasInitialized || l->comp.len < 2)
+                completeLine(l);
+            return LR_CONTINUE;
+        }
     }
 }
 
