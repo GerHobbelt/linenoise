@@ -18,15 +18,17 @@ void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     if (strncmp(buf, "multi kulti", 11) == 0) {
         // No hints
     } else if (strncmp(buf, "multi", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
-        linenoiseAddCompletion(lc, "multi kulti", SIZE_MAX);
+        linenoiseAddCompletion(lc, "kulti", "multi kulti", SIZE_MAX);
+    } else if (strncmp(buf, "hello", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
+        if (buf[5] == '\0' || (isspace(buf[5]) && (buf[6] == '\0' || buf[6] == 't')))
+            linenoiseAddCompletion(lc, "there", "hello there", SIZE_MAX);
+        if (buf[5] == '\0' || (isspace(buf[5]) && (buf[6] == '\0' || buf[6] == 'h')))
+            linenoiseAddCompletion(lc, "here", "hello here", SIZE_MAX);
     } else {
-        if (buf[0] == 'h' || buf[0] == '\0') {
-            linenoiseAddCompletion(lc, "hello", SIZE_MAX);
-            linenoiseAddCompletion(lc, "hello there", SIZE_MAX);
-        }
-        if (buf[0] == 'm' || buf[0] == '\0') {
-            linenoiseAddCompletion(lc, "multi", SIZE_MAX);
-        }
+        if (buf[0] == 'h' || buf[0] == '\0')
+            linenoiseAddCompletion(lc, "hello", "hello ", SIZE_MAX);
+        if (buf[0] == 'm' || buf[0] == '\0')
+            linenoiseAddCompletion(lc, "multi", "multi ", SIZE_MAX);
     }
 }
 

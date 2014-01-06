@@ -117,14 +117,15 @@
 #include "linenoise.h"
 
 typedef struct linenoiseSingleCompletion {
-    char *text;         /* Completion text */
-    size_t pos;         /* Cursor position */
+    char *suggestion;   /* Suggestion to display. */
+    char *text;         /* Fully completed text. */
+    size_t pos;         /* Cursor position. */
 } linenoiseSingleCompletion;
 
 struct linenoiseCompletions {
   bool is_initialized;  /* True if completions are initialized. */
   size_t len;           /* Current number of completions. */
-  size_t max_strlen;    /* Maximum completion text length. */
+  size_t max_strlen;    /* Maximum suggestion text length. */
   linenoiseSingleCompletion *cvec;  /* Array of completions. */
 };
 
@@ -393,8 +394,10 @@ static int linenoiseBeep(void) {
 static void freeCompletions(struct linenoiseState *ls) {
     size_t i;
     if (ls->comp.cvec != NULL) {
-        for (i = 0; i < ls->comp.len; i++)
+        for (i = 0; i < ls->comp.len; i++) {
+            free(ls->comp.cvec[i].suggestion);
             free(ls->comp.cvec[i].text);
+        }
         free(ls->comp.cvec);
     }
 
@@ -409,7 +412,7 @@ static int completitionCompare(const void *first, const void *second)
 {
     linenoiseSingleCompletion *firstcomp = (linenoiseSingleCompletion *) first;
     linenoiseSingleCompletion *secondcomp = (linenoiseSingleCompletion *) second;
-    return (strcoll(firstcomp->text, secondcomp->text));
+    return (strcoll(firstcomp->suggestion, secondcomp->suggestion));
 }
 
 /* This is an helper function for linenoiseEdit() and is called when the
@@ -449,7 +452,7 @@ static int completeLine(struct linenoiseState *ls) {
         {
             size_t real_index = (i % cols) * rows + i / cols;
             if (real_index < ls->comp.len)
-                printf("%-*s", (int)colSize, ls->comp.cvec[real_index].text);
+                printf("%-*s", (int)colSize, ls->comp.cvec[real_index].suggestion);
             if ((i % cols) == (cols - 1))
                 printf("\r\n");
         }
@@ -470,22 +473,25 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
-void linenoiseAddCompletion(linenoiseCompletions *lc, char *str, size_t pos) {
-    size_t len = strlen(str);
-    char *copy = malloc(len+1);
-    if (copy == NULL) goto error_cleanup;
-    memcpy(copy,str,len+1);
+void linenoiseAddCompletion(linenoiseCompletions *lc, char *suggestion, char *completed_text, size_t pos) {
+    size_t len = strlen(suggestion);
+    char *copy_suggestion = malloc(len+1);
+    char *copy_text = strdup(completed_text);
+    if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
+    memcpy(copy_suggestion,suggestion,len+1);
     if (lc->len == 0 || lc->cvec != NULL) {
         linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
         if (newcvec == NULL) goto error_cleanup;
         lc->cvec = newcvec;
-        lc->cvec[lc->len].text = copy;
+        lc->cvec[lc->len].suggestion = copy_suggestion;
+        lc->cvec[lc->len].text = copy_text;
         lc->cvec[lc->len].pos = pos;
     }
     goto end;
 
 error_cleanup:
-    free(copy);
+    free(copy_suggestion);
+    free(copy_text);
 
     size_t i;
     for (i = 0; i < lc->len; i++)
