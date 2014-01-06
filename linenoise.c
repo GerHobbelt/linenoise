@@ -475,7 +475,12 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
-void linenoiseAddCompletion(linenoiseCompletions *lc, const char *suggestion, const char *completed_text, size_t pos) {
+int linenoiseAddCompletion(linenoiseCompletions *lc, const char *suggestion, const char *completed_text, size_t pos) {
+    if (suggestion == NULL || completed_text == NULL || *suggestion == '\0' || *completed_text == '\0') {
+        errno = EINVAL;
+        return -1;
+    }
+    int result = 0;
     size_t len = strlen(suggestion);
     char *copy_suggestion = malloc(len+1);
     char *copy_text = strdup(completed_text);
@@ -500,11 +505,14 @@ error_cleanup:
         free(lc->cvec[i].text);
     free(lc->cvec);
     lc->cvec = NULL;
+    errno = ENOMEM;
+    result = -1;
 
 end:
     if (len > lc->max_strlen)
         lc->max_strlen = len;
     lc->len++;
+    return result;
 }
 
 /* =========================== Line editing ================================= */
