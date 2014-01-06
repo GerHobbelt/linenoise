@@ -535,10 +535,18 @@ char *getPrompt(struct linenoiseState *l, size_t *plen)
 int setPrompt(struct linenoiseState *l, const char *prompt)
 {
     char *oldPrompt = getPrompt(l, NULL);
-    if (oldPrompt == NULL || strcmp(oldPrompt, prompt) != 0)
+    if ((oldPrompt == NULL && prompt != NULL)
+            || (oldPrompt != NULL && prompt == NULL)
+            || (oldPrompt != NULL && prompt != NULL
+                    && strcmp(oldPrompt, prompt) != 0))
         l->needs_refresh = true;
-    if (l->prompt == NULL || strcmp(l->prompt, prompt) != 0) {
+
+    if (l->prompt != NULL) {
         free(l->prompt);
+        l->prompt = NULL;
+        l->plen = 0;
+    }
+    if (prompt != NULL) {
         l->prompt = strdup(prompt);
         l->plen = strlen(prompt);
         if (l->prompt == NULL) {
