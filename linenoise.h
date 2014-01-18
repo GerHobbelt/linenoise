@@ -78,8 +78,10 @@ int linenoiseAddCompletion(linenoiseCompletions *completions, const char *sugges
  *
  * Next call to linenoise(const char*) or linenoiseShowPrompt(const char*)
  * refreshes the line.
+ *
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-void linenoiseCustomOutput();
+int linenoiseCustomOutput();
 
 /**
  * Cancels the current line editing.
@@ -89,8 +91,10 @@ void linenoiseCustomOutput();
  *
  * Should be called from SIGINT handler or when linenoise(const char *) is not
  * being called.
+ *
+ * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-void linenoiseCancel();
+int linenoiseCancel();
 
 /**
  * Reconfigures the window size.
@@ -98,7 +102,7 @@ void linenoiseCancel();
  * Should be called from SIGWINCH handler or when the linenoise(const char *)
  * is not being called.
  */
-void linenoiseUpdateSize();
+int linenoiseUpdateSize();
 
 /** Sets the prompt.
  *
@@ -111,9 +115,10 @@ int linenoiseSetPrompt(const char *prompt);
  * Shows the prompt without reading any character.
  *
  * The method cannot be used for non-ANSI terminal, in which case the method
- * returns -1 and sets errno to EBADF.
+ * does nothing and returns 0.
  *
- * @return Returns 0 on success, or -1 on error. See errno for details.
+ * @return Returns 1 on success, 0 on no action, or -1 on error. See errno for
+ * details.
  */
 int linenoiseShowPrompt();
 
@@ -121,9 +126,9 @@ int linenoiseShowPrompt();
  * Checks if there is a pending character to be processed or the line editing
  * has been cancelled.
  *
- * @return Returns 0 when there is nothing to be read, or non-zero if the
- * linenoise() method should be called to process pending input.
- */
+ * @return Returns 0 when there is nothing to be read, positive number if the
+ * linenoise() method should be called to process pending input, or -1 on error.
+ * See errno for details. */
 int linenoiseHasPendingChar();
 
 /**

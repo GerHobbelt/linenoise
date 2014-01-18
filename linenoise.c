@@ -154,7 +154,7 @@ static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
-char **history = NULL;
+static char **history = NULL;
 
 enum LinenoiseState {
     LS_NEW_LINE,        /* Processing new line. */
@@ -229,6 +229,7 @@ typedef struct linenoiseHistorySearchState {
  * functionalities. */
 struct linenoiseState {
     int fd;             /* Terminal file descriptor. */
+    bool is_supported;  /* True if the terminal is supported. */
     char *buf;          /* Edited line buffer. */
     size_t buflen;      /* Edited line buffer size. */
     char *prompt;       /* Prompt to display. */
@@ -261,11 +262,13 @@ static struct linenoiseState state = {      /* Line editing state. */
         fd: STDIN_FILENO,
         state: LS_NEW_LINE
 };
-static bool initialized = false;        /* True if line editing has been initialized. */
+static volatile bool initialized = false;        /* True if line editing has been initialized. */
 
 static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
+static int ensureInitialized(struct linenoiseState *l);
 static int initialize(struct linenoiseState *l);
+static void updateSize();
 static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
 static int prepareCustomOutputOnNewLine(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
@@ -280,8 +283,8 @@ void linenoiseSetMultiLine(int ml) {
 
 /* Return true if the terminal is not a TTY or the name is in the list of
  * terminals we know are not able to understand basic escape sequences. */
-static int isUnsupportedTerm(void) {
-    if ( !isatty(STDIN_FILENO) )
+static int isUnsupportedTerm(int fd) {
+    if ( !isatty(fd) )
         return 1;
 
     char *term = getenv("TERM");
@@ -377,7 +380,7 @@ static bool revertSignals(struct linenoiseState *ls) {
 
 /* Clear the screen. Used to handle ctrl+l */
 int clearScreen(struct linenoiseState *ls) {
-    if (RETRY(write(STDIN_FILENO,"\x1b[H\x1b[2J",7)) <= 0) {
+    if (RETRY(write(ls->fd,"\x1b[H\x1b[2J",7)) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
     ls->needs_refresh = true;
@@ -776,10 +779,16 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 }
 
 /* Prepare output for custom printing with no prompt; undo the raw mode. */
-void linenoiseCustomOutput()
+int linenoiseCustomOutput()
 {
-    (void) prepareCustomOutputClearLine(&state);
+    if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
+    int result = prepareCustomOutputClearLine(&state);
+    int saved_errno = errno;
     disableRawMode(state.fd);
+    errno = saved_errno;
+    return result;
 }
 
 /* Prepare custom output on new line.
@@ -1669,26 +1678,27 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
 }
 
 /* Ensure the fields are initialized. */
-int ensureInitialized(struct linenoiseState *l)
+static int ensureInitialized(struct linenoiseState *l)
 {
-    if (isUnsupportedTerm()) {
-        errno = EBADF;
-        return -1;
-    } else {
-        if ( !initialized )
-        {
-            if (initialize(l) == -1) return -1;
+    if (!initialized) {
+        blockSignals(l);
+        if (!initialized) {
+            if (initialize(l) == -1) {
+                revertSignals(l);
+                return -1;
+            }
             initialized = true;
+            revertSignals(l);
         }
-        else
-        {
-            linenoiseUpdateSize();
-        }
-
-        int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
-        l->is_async = (flagsRead & O_NONBLOCK) != 0;
-        return 0;
+    } else if (l->is_supported) {
+        updateSize();
     }
+
+    if (l->is_supported) {
+        int flagsRead = fcntl(l->fd, F_GETFL, 0);
+        l->is_async = (flagsRead & O_NONBLOCK) != 0;
+    }
+    return 0;
 }
 
 int linenoiseSetPrompt(const char *prompt)
@@ -1701,26 +1711,34 @@ int linenoiseSetPrompt(const char *prompt)
 int linenoiseShowPrompt()
 {
     if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
     if (enableRawMode(state.fd) == -1) return -1;
     int result = 0;
     if (state.needs_refresh || !state.is_displayed)
         result = refreshLine(&state);
     if (result == -1 || !state.is_async)
         disableRawMode(state.fd);
-    return result;
+    return result == 0 ? 1 : result;
 }
 
 /* Check if there is anything to process. */
 int linenoiseHasPendingChar()
 {
+    if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
     return state.read_back_char_len != 0 || state.is_cancelled;
 }
 
 int linenoiseCleanup()
 {
-	if (prepareCustomOutputOnNewLine(&state) == -1) return -1;
-	disableRawMode(state.fd);
-	return 0;
+    if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
+    if (prepareCustomOutputOnNewLine(&state) == -1) return -1;
+    disableRawMode(state.fd);
+    return 0;
 }
 
 /* The high level function that is the main API of the linenoise library.
@@ -1729,7 +1747,10 @@ int linenoiseCleanup()
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
 char *linenoise() {
-    if (isUnsupportedTerm()) {
+    int saved_errno = errno;
+    if (ensureInitialized(&state) == -1) return NULL;
+
+    if (!state.is_supported) {
         char buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
         size_t len;
 
@@ -1743,10 +1764,6 @@ char *linenoise() {
         }
         return strdup(buf);
     } else {
-        int saved_errno = errno;
-
-        if (ensureInitialized(&state) == -1) return NULL;
-
         enum LinenoiseResult result = linenoiseRaw(&state);
 
         if (result == LR_CANCELLED) {
@@ -1788,12 +1805,16 @@ char *linenoise() {
 }
 
 /* Cancel the current line editing. */
-void linenoiseCancel() {
+int linenoiseCancel() {
+    if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
     state.is_cancelled = true;
+    return 0;
 }
 
-/* Update the size. */
-void linenoiseUpdateSize() {
+/* Update the number of columns. */
+static void updateSize() {
     size_t newCols = getColumns();
     if ( newCols != state.cols )
     {
@@ -1802,9 +1823,21 @@ void linenoiseUpdateSize() {
     }
 }
 
+/* Update the size. */
+int linenoiseUpdateSize() {
+    if (ensureInitialized(&state) == -1) return -1;
+    if (!state.is_supported) return 0;
+
+    updateSize();
+    return 0;
+}
+
 /* Initialize the state */
 static int initialize(struct linenoiseState *l)
 {
+    l->is_supported = (isUnsupportedTerm(l->fd) == 0);
+    if (!l->is_supported) return 0;
+
     atexit(linenoiseAtExit);
 
     struct sigevent ev = {sigev_notify: SIGEV_SIGNAL, sigev_signo: SIGALRM };
@@ -1851,7 +1884,7 @@ static void freeHistory(void) {
 
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void linenoiseAtExit(void) {
-    disableRawMode(STDIN_FILENO);
+    disableRawMode(state.fd);
     freeHistory();
     freeState();
 }
