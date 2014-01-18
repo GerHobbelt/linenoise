@@ -1778,7 +1778,9 @@ char *linenoise() {
             len--;
             buf[len] = '\0';
         }
-        return strdup(buf);
+        char* copy = strdup(buf);
+        if (copy == NULL) errno = ENOMEM;
+        return copy;
     } else {
         enum LinenoiseResult result = linenoiseRaw(&state);
 
