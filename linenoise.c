@@ -117,6 +117,14 @@
 #define RETRY(expression) \
 	( { int result = (expression); while (result == -1 && errno == EINTR ) result = (expression); result; } )
 
+#ifndef CTRL
+#define CTRL(c) ((c) & 0x1f)
+#endif
+
+#ifndef CERASE
+#define CERASE 127
+#endif
+
 typedef struct linenoiseSingleCompletion {
     char *suggestion;   /* Suggestion to display. */
     char *text;         /* Fully completed text. */
@@ -160,13 +168,13 @@ enum ReadCharSpecials {
     RCS_ERROR = -1,             /* Error. */
     RCS_CLOSED = -2,            /* Connection has been closed. */
     RCS_CANCELLED = -3,         /* Line editing has been cancelled. */
-    RCS_ANSI_CURSOR_LEFT = -4,  /* Left key. */
-    RCS_ANSI_CURSOR_RIGHT = -5, /* Right key. */
-    RCS_ANSI_CURSOR_UP = -6,    /* Up key. */
-    RCS_ANSI_CURSOR_DOWN = -7,  /* Down key. */
-    RCS_ANSI_DELETE = -8,       /* Delete key. */
-    RCS_ANSI_HOME = -9,         /* Home key. */
-    RCS_ANSI_END = -10          /* End key. */
+    RCS_CURSOR_LEFT = -4,       /* Left key. */
+    RCS_CURSOR_RIGHT = -5,      /* Right key. */
+    RCS_CURSOR_UP = -6,         /* Up key. */
+    RCS_CURSOR_DOWN = -7,       /* Down key. */
+    RCS_DELETE = -8,            /* Delete key. */
+    RCS_HOME = -9,              /* Home key. */
+    RCS_END = -10               /* End key. */
 };
 
 enum AnsiEscapeState {
@@ -822,41 +830,41 @@ int ansiDecode(struct linenoiseAnsi *la)
         {
         case 0x41:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_CURSOR_UP;
+                return RCS_CURSOR_UP;
             else
                 break;
         case 0x42:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_CURSOR_DOWN;
+                return RCS_CURSOR_DOWN;
             else
                 break;
         case 0x43:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_CURSOR_RIGHT;
+                return RCS_CURSOR_RIGHT;
             else
                 break;
         case 0x44:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_CURSOR_LEFT;
+                return RCS_CURSOR_LEFT;
             else
                 break;
         case 0x46:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_END;
+                return RCS_END;
             else
                 break;
         case 0x48:
             if (la->ansi_parameter_len == 0)
-                return RCS_ANSI_HOME;
+                return RCS_HOME;
             else
                 break;
         case 0x7E: {    // 0x70 to 0x7E are fpr private use as per ECMA-048
             if (strcmp(la->ansi_parameter, "1") == 0)
-                return RCS_ANSI_HOME;
+                return RCS_HOME;
             else if (strcmp(la->ansi_parameter, "3") == 0)
-                return RCS_ANSI_DELETE;
+                return RCS_DELETE;
             if (strcmp(la->ansi_parameter, "4") == 0)
-                return RCS_ANSI_END;
+                return RCS_END;
             break;
         }
         default: break;
@@ -1299,11 +1307,11 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
     }
 
     switch(c) {
-    case 13:    /* enter */
+    case CTRL('M'):     /* enter */
         if (resetState(l) == -1) return LR_ERROR;
         return LR_HAVE_TEXT;
     case RCS_CANCELLED:
-    case 3:     /* ctrl-c */
+    case CTRL('C'):     /* ctrl-c */
     {
         bool doCancel = (l->len == 0);
         if (cancelInternal(l) == -1) return LR_ERROR;
@@ -1315,11 +1323,11 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
             return LR_CONTINUE;
         }
     }
-    case 127:   /* backspace */
-    case 8:     /* ctrl-h */
+    case CERASE:           /* backspace */
+    case CTRL('H'):     /* ctrl-h */
         if (linenoiseEditBackspace(l) == -1) return LR_ERROR;
         break;
-    case 4:     /* ctrl-d, remove char at right of cursor, or of the
+    case CTRL('D'):     /* ctrl-d, remove char at right of cursor, or of the
                    line is empty, act as end-of-file. */
         if (l->len > 0) {
             if (linenoiseEditDelete(l) == -1) return LR_ERROR;
@@ -1328,7 +1336,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
             return LR_CLOSED;
         }
         break;
-    case 20:    /* ctrl-t, swaps current character with previous. */
+    case CTRL('T'):     /* ctrl-t, swaps current character with previous. */
         if (l->pos > 0 && l->pos < l->len) {
             int aux = l->buf[l->pos-1];
             l->buf[l->pos-1] = l->buf[l->pos];
@@ -1337,70 +1345,70 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
             if (refreshLine(l) == -1) return LR_ERROR;
         }
         break;
-    case 2:     /* ctrl-b */
+    case CTRL('B'):     /* ctrl-b */
         if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
         break;
-    case 6:     /* ctrl-f */
+    case CTRL('F'):     /* ctrl-f */
         if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
         break;
-    case 16:    /* ctrl-p */
+    case CTRL('P'):     /* ctrl-p */
         if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV) == -1) return LR_ERROR;
         break;
-    case 14:    /* ctrl-n */
+    case CTRL('N'):     /* ctrl-n */
         if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_CURSOR_LEFT:
+    case RCS_CURSOR_LEFT:
         if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_CURSOR_RIGHT:
+    case RCS_CURSOR_RIGHT:
         if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_CURSOR_UP:
-    case RCS_ANSI_CURSOR_DOWN:
+    case RCS_CURSOR_UP:
+    case RCS_CURSOR_DOWN:
         if (linenoiseEditHistoryNext(l,
-                c == RCS_ANSI_CURSOR_UP ? LINENOISE_HISTORY_PREV :
+                c == RCS_CURSOR_UP ? LINENOISE_HISTORY_PREV :
                                           LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_DELETE:
+    case RCS_DELETE:
         if (linenoiseEditDelete(l) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_HOME:
+    case RCS_HOME:
         l->pos = 0;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case RCS_ANSI_END:
+    case RCS_END:
         l->pos = l->len;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     default:
         if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
         break;
-    case 21: /* Ctrl+u, delete the whole line. */
+    case CTRL('U'):     /* Ctrl+u, delete the whole line. */
         l->buf[0] = '\0';
         l->pos = l->len = 0;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case 11: /* Ctrl+k, delete from current to end of line. */
+    case CTRL('K'):     /* Ctrl+k, delete from current to end of line. */
         l->buf[l->pos] = '\0';
         l->len = l->pos;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case 1: /* Ctrl+a, go to the start of the line */
+    case CTRL('A'):     /* Ctrl+a, go to the start of the line */
         l->pos = 0;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case 5: /* ctrl+e, go to the end of the line */
+    case CTRL('E'):     /* ctrl+e, go to the end of the line */
         l->pos = l->len;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case 12: /* ctrl+l, clear screen */
+    case CTRL('L'):     /* ctrl+l,     clear screen */
         if (clearScreen(l) == -1) return LR_ERROR;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
-    case 23: /* ctrl+w, delete previous word */
+    case CTRL('W'):     /* ctrl+w, delete previous word */
         if (linenoiseEditDeletePrevWord(l) == -1) return LR_ERROR;
         break;
-    case 9:  /* tab, complete */
+    case CTRL('I'):     /* tab, complete */
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
@@ -1412,7 +1420,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
             if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
         }
         break;
-    case 18: /* ctrl+r, search the history */
+    case CTRL('R'):     /* ctrl+r, search the history */
         if (linenoiseEditUpdateHistoryEntry(l) == -1) return -1;
         pushFrontChar(l, c);
         l->state = LS_HISTORY_SEARCH;
@@ -1428,7 +1436,7 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
     int c = readChar(l);
 
     switch (c) {
-    case 3:
+    case CTRL('C'):
     case RCS_CANCELLED:
     case RCS_CLOSED:
     default:
@@ -1439,7 +1447,7 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
         return LR_CONTINUE;
     case RCS_ERROR:
         return LR_ERROR;
-    case 9:
+    case CTRL('I'):
         {
             bool wasInitialized = l->comp.is_initialized;
             if (!wasInitialized || l->comp.len == 1) {
@@ -1531,7 +1539,7 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
     int c = readChar(l);
 
     switch (c) {
-    case 3:
+    case CTRL('C'):
     case RCS_CANCELLED:
         if (cancelInternal(l) == -1) return LR_ERROR;
         if (printf("\r\n") < 0) return LR_ERROR;
@@ -1545,8 +1553,8 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
         return LR_CONTINUE;
     case RCS_ERROR:
         return LR_ERROR;
-    case 127:   /* backspace */
-    case 8:     /* ctrl-h */
+    case CERASE:   /* backspace */
+    case CTRL('H'):     /* ctrl-h */
         if (l->hist_search.hist_search_len > 0) {
             l->hist_search.hist_search_len--;
             l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
@@ -1584,7 +1592,7 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
             l->state = LS_READ;
             return LR_CONTINUE;
         }
-    case 18:
+    case CTRL('R'):
         if (l->hist_search.hist_search_buf == NULL) {
             // First search
             if (history_len == 1) {
