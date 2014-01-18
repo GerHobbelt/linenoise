@@ -1754,9 +1754,25 @@ char *linenoise() {
         char buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
         size_t len;
 
+        if (state.is_cancelled) {
+            errno = EINTR;
+            return NULL;
+        }
+
         printf("%s",state.prompt);
         fflush(stdout);
-        if (fgets(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) return NULL;
+        if (fgets(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) {
+            if (state.is_cancelled) {
+                errno = EINTR;
+            }
+            return NULL;
+        }
+
+        if (state.is_cancelled) {
+            errno = EINTR;
+            return NULL;
+        }
+
         len = strlen(buf);
         while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             len--;
@@ -1807,8 +1823,6 @@ char *linenoise() {
 /* Cancel the current line editing. */
 int linenoiseCancel() {
     if (ensureInitialized(&state) == -1) return -1;
-    if (!state.is_supported) return 0;
-
     state.is_cancelled = true;
     return 0;
 }

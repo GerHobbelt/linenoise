@@ -85,10 +85,15 @@ int main(int argc, char **argv) {
         }
     }
 
-    signal(SIGINT, sigint_handler);
-    signal(SIGWINCH, sigwinch_handler);
-    signal(SIGALRM, sigalrm_handler);
-    signal(SIGTERM, sigterm_handler);
+    struct sigaction sa = {{ 0 }};
+    sa.sa_handler = sigint_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sa.sa_handler = sigwinch_handler;
+    sigaction(SIGWINCH, &sa, NULL);
+    sa.sa_handler = sigalrm_handler;
+    sigaction(SIGALRM, &sa, NULL);
+    sa.sa_handler = sigterm_handler;
+    sigaction(SIGTERM, &sa, NULL);
 
     /* Set the prompt. */
     linenoiseSetPrompt("hello> ");
