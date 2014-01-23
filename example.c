@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <ctype.h>
+#include <locale.h>
 #include "linenoise.h"
 
 #define POLL_TIMEOUT_MS 10000
@@ -84,6 +85,8 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+
+    setlocale(LC_CTYPE, "");
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

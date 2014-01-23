@@ -112,6 +112,7 @@
 #include <locale.h>
 #include <signal.h>
 #include <sys/select.h>
+#include <wchar.h>
 #include "linenoise.h"
 
 #define RETRY(expression) \
@@ -124,6 +125,8 @@
 #ifndef CERASE
 #define CERASE 127
 #endif
+
+#define CESC CTRL('[')
 
 typedef struct linenoiseSingleCompletion {
     char *suggestion;   /* Suggestion to display. */
@@ -144,6 +147,7 @@ struct linenoiseCompletions {
 #define ANSI_ESCAPE_MAX_LEN 16
 #define ANSI_ESCAPE_WAIT_MS 50  /* Wait 50ms for further ANSI codes, otherwise return escape */
 #define READ_BACK_MAX_LEN 32
+#define MAX_RAW_CHARS 6         /* 6 UTF-8 characters */
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 static char *unsupported_term[] = {"dumb","cons25",NULL};
@@ -201,12 +205,33 @@ enum LinenoiseResult {
     LR_CONTINUE = -3    /** Continue reading next character. */
 };
 
+typedef struct linenoiseString {
+    char *buf;          /* String buffer. */
+    size_t *charindex;  /* Starting position of characters. */
+    size_t buflen;      /* String buffer size. */
+    size_t bytelen;     /* String length (in bytes). */
+    size_t charlen;     /* String length (in characters). */
+} linenoiseString;
+
+typedef struct linenoiseChar {
+    int32_t unicodeChar;
+    unsigned char rawChars[MAX_RAW_CHARS+1];
+    size_t rawCharsLen;
+} linenoiseChar;
+
+typedef struct linenoiseRawChar {
+    linenoiseChar currentChar;
+    bool is_emited;
+    mbstate_t readingState;
+} linenoiseRawChar;
+
 typedef struct linenoiseAnsi {
+    linenoiseChar escape;       /* Read escape character. */
     timer_t ansi_timer;         /* Timer to differentiate between ESC and ANSI escape sequence. */
     bool ansi_timer_is_active;  /* True if the timer is active. */
     int ansi_timer_overrun_count;   /* Overrun count of timer. */
     enum AnsiEscapeState ansi_state;    /* ANSI sequence reading state */
-    char ansi_escape[ANSI_ESCAPE_MAX_LEN + 1];  /* RAW read ANSI escape sequence */
+    struct linenoiseChar ansi_escape[ANSI_ESCAPE_MAX_LEN + 1];  /* RAW read ANSI escape sequence */
     char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];    /* Intermediate sequence. */
     char ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];   /* Parameter sequence. */
     char ansi_final;    /* Final character of sequence. */
@@ -214,12 +239,11 @@ typedef struct linenoiseAnsi {
     int ansi_escape_len;                    /* Current length of sequence */
     int ansi_intermediate_len;              /* Current length of intermediate block */
     int ansi_parameter_len;                 /* Current length of parameter block */
+    linenoiseChar temp_char;    /* Temporary character for negative RCS_* codes. */
 } linenoiseAnsi;
 
 typedef struct linenoiseHistorySearchState {
-    char *hist_search_buf;          /* Text to be searched. */
-    size_t hist_search_buflen;      /* Buffer length. */
-    size_t hist_search_len;         /* Length of text to be searched. */
+    struct linenoiseString text;    /* Text to be searched. */
     int current_index;              /* Current history index. */
     bool found;                     /* True if current text has been fouond. */
 } linenoiseHistorySearchState;
@@ -230,16 +254,12 @@ typedef struct linenoiseHistorySearchState {
 struct linenoiseState {
     int fd;             /* Terminal file descriptor. */
     bool is_supported;  /* True if the terminal is supported. */
-    char *buf;          /* Edited line buffer. */
-    size_t buflen;      /* Edited line buffer size. */
-    char *prompt;       /* Prompt to display. */
-    size_t plen;        /* Prompt length. */
-    char *tempprompt;   /* Temporary prompt to display. */
-    size_t tempplen;    /* Temporary prompt length. */
+    linenoiseString line;   /* Current edited line. */
+    linenoiseString prompt; /* Prompt to display. */
+    linenoiseString tempprompt;   /* Temporary prompt to display. */
     size_t pos;         /* Current cursor position. */
     size_t oldpos;      /* Previous refresh cursor position. */
     size_t oldrpos;     /* Previous cursor row position. */
-    size_t len;         /* Current edited line length. */
     size_t cols;        /* Number of columns in terminal. */
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
     int history_index;  /* The history index we are currently editing. */
@@ -252,8 +272,11 @@ struct linenoiseState {
     linenoiseCompletions comp;  /* Line completions. */
     bool sigint_blocked;   /* True when the SIGINT is blocked. */
     sigset_t sigint_oldmask;    /* Old signal mask. */
+    linenoiseRawChar rawChar;   /* Character reading state. */
     linenoiseAnsi ansi; /* ANSI escape sequence state machine. */
-    int read_back_char[READ_BACK_MAX_LEN];      /* Read-back buffer for characters. */
+    linenoiseChar read_back_char[READ_BACK_MAX_LEN];    /* Read-back buffer for characters. */
+    linenoiseChar read_back_return; /* Read-back character to be returned (not further processed). */
+    linenoiseChar cached_read_char; /* Cached lastly read character to be processed. */
     int read_back_char_len;                     /* Number of characters in buffer. */
     linenoiseHistorySearchState hist_search;    /* History search. */
 };
@@ -264,15 +287,117 @@ static struct linenoiseState state = {      /* Line editing state. */
 };
 static volatile bool initialized = false;        /* True if line editing has been initialized. */
 
+static const linenoiseChar CHAR_NONE = { RCS_NONE, {0}, 0 };
+static const linenoiseChar CHAR_ERROR = { RCS_ERROR, {0}, 0 };
+static const linenoiseChar CHAR_CANCELLED = { RCS_CANCELLED, {0}, 0 };
+
 static void linenoiseAtExit(void);
 static int refreshLine(struct linenoiseState *l);
 static int ensureInitialized(struct linenoiseState *l);
 static int initialize(struct linenoiseState *l);
 static void updateSize();
-static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen);
+static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen);
 static int prepareCustomOutputOnNewLine(struct linenoiseState *l);
 static int prepareCustomOutputClearLine(struct linenoiseState *l);
 static int freeHistorySearch(struct linenoiseState *l);
+
+/* ======================= Line and buffer manipulation ===================== */
+
+inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, int32_t cs)
+{
+    int saved_errno = errno;
+    tempChar->unicodeChar = cs;
+    if (cs > 0) {
+        mbstate_t state;
+        memset(&state, 0, sizeof(state));
+        tempChar->rawCharsLen = wcrtomb((char*)tempChar->rawChars, cs, &state);
+        if (tempChar->rawCharsLen == (size_t)-1 || tempChar->rawCharsLen == 0) {
+            tempChar->unicodeChar = RCS_NONE;
+            tempChar->rawCharsLen = 0;
+        }
+    } else {
+        tempChar->rawCharsLen = 0;
+    }
+    errno = saved_errno;
+    return tempChar;
+}
+
+inline size_t getCharIndexAt(struct linenoiseString *s, size_t pos)
+{
+    if (pos >= s->charlen) {
+        return s->charindex[s->charlen];
+    } else {
+        return s->charindex[pos];
+    }
+}
+
+inline char *getCharAt(struct linenoiseString *s, size_t pos)
+{
+    if (pos >= s->charlen) {
+        return s->buf + s->charindex[s->charlen];
+    } else {
+        return s->buf + s->charindex[pos];
+    }
+}
+
+inline int32_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
+{
+    wchar_t c = 0;
+    int saved_errno = errno;
+    mbstate_t state;
+    memset(&state, 0, sizeof(state));
+    (void) mbrtowc(&c, getCharAt(s, pos), 1, &state);
+    errno = saved_errno;
+    return c;
+}
+
+inline size_t getCharSizeAt(struct linenoiseString *s, size_t pos)
+{
+    if (pos >= s->charlen) {
+        return 0;
+    } else {
+        return s->charindex[pos + 1] - s->charindex[pos];
+    }
+}
+
+inline bool isAtCharBoundary(size_t pos, struct linenoiseString *s)
+{
+    int i;
+    for (i = 0; i <= s->charlen; i++) {
+        if (pos == s->charindex[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline size_t findNearestCharIndex(size_t pos, struct linenoiseString *s)
+{
+    int i;
+    for (i = 0; i <= s->charlen; i++) {
+        if (pos <= s->charindex[i]) {
+            return i;
+        }
+    }
+    return s->charlen;
+}
+
+inline void clearString(struct linenoiseString *s)
+{
+    s->bytelen = s->charlen = 0;
+    if (s->buf != NULL)
+        s->buf[0] = '\0';
+}
+
+inline void freeString(struct linenoiseString *s)
+{
+    free(s->buf);
+    free(s->charindex);
+    s->buf = NULL;
+    s->charindex = NULL;
+    s->bytelen = s->charlen = s->buflen = 0;
+
+}
 
 /* ======================= Low level terminal handling ====================== */
 
@@ -428,6 +553,51 @@ static int completitionCompare(const void *first, const void *second)
     return (strcoll(firstcomp->suggestion, secondcomp->suggestion));
 }
 
+int parseLine(const char *src, size_t srclen, struct linenoiseString *dest)
+{
+    if (ensureBufLen(dest, srclen+1) == -1) return -1;
+    int saved_errno = errno;
+    const char *charstart = src;
+    const char *charend = src;
+    const char *srcend = src + srclen;
+    mbstate_t state;
+    memset(&state, 0, sizeof(state));
+
+    size_t newbytelen = 0;
+    size_t newcharlen = 0;
+
+    dest->charindex[0] = 0;
+    while (charend < srcend) {
+        int found = mbrlen(charend, 1, &state);
+        if (found == (size_t)-1) {
+            charstart = charend;
+            continue;
+        } else if (found != (size_t)-2) {
+            size_t newCharSize = (charend - charstart) + 1;
+            memcpy(dest->buf+newbytelen, charstart, newCharSize*sizeof(dest->buf[0]));
+            newcharlen++;
+            newbytelen += newCharSize;
+            dest->charindex[newcharlen] = newbytelen;
+            charstart = ++charend;
+        } else {
+            ++charend;
+        }
+    }
+    dest->buf[newbytelen] = '\0';
+    dest->charlen = newcharlen;
+    dest->bytelen = newbytelen;
+    errno = saved_errno;
+    return 0;
+}
+
+static int replaceLine(struct linenoiseState *l, char *text, int len)
+{
+    if (ensureBufLen(&l->line, len+1) == -1) return -1;
+    parseLine(text, len, &l->line);
+    l->pos = l->line.charlen;
+    return 0;
+}
+
 /* This is an helper function for linenoiseEdit() and is called when the
  * user types the <tab> key in order to complete the string currently in the
  * input.
@@ -443,11 +613,8 @@ static int completeLine(struct linenoiseState *ls) {
     } else if (ls->comp.len == 1) {
         // Simple case
         size_t new_strlen = strlen(ls->comp.cvec[0].text);
-        if (ensureBufLen(ls, new_strlen) == -1) return -1;
-
-        memcpy(ls->buf, ls->comp.cvec[0].text, new_strlen+1);
-        ls->pos = MIN(new_strlen, ls->comp.cvec[0].pos);
-        ls->len = new_strlen;
+        if (replaceLine(ls, ls->comp.cvec[0].text, new_strlen) == -1) return -1;
+        ls->pos = findNearestCharIndex(ls->comp.cvec[0].pos, &ls->line);
         if (refreshLine(ls) == -1) return -1;
     } else {
         // Multiple choices - sort them and print
@@ -496,7 +663,7 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char *suggestion, con
     char *copy_suggestion = malloc(len+1);
     char *copy_text = strdup(completed_text);
     if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
-    memcpy(copy_suggestion,suggestion,len+1);
+    memcpy(copy_suggestion,suggestion,(len+1)*sizeof(*suggestion));
     if (lc->len == 0 || lc->cvec != NULL) {
         linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
         if (newcvec == NULL) goto error_cleanup;
@@ -529,40 +696,48 @@ end:
 /* =========================== Line editing ================================= */
 
 /* Get the prompt to be displayed. */
-char *getPrompt(struct linenoiseState *l, size_t *plen)
+linenoiseString *getPrompt(struct linenoiseState *l)
 {
-    if (l->tempprompt != NULL) {
-        if (plen != NULL)
-            *plen = l->tempplen;
-        return l->tempprompt;
+    if (l->tempprompt.buf != NULL) {
+        return &l->tempprompt;
     } else {
-        if (plen != NULL)
-            *plen = l->plen;
-        return l->prompt;
+        return &l->prompt;
     }
 }
 
 /* Set the main prompt. */
 int setPrompt(struct linenoiseState *l, const char *prompt)
 {
-    char *oldPrompt = getPrompt(l, NULL);
-    if ((oldPrompt == NULL && prompt != NULL)
-            || (oldPrompt != NULL && prompt == NULL)
-            || (oldPrompt != NULL && prompt != NULL
-                    && strcmp(oldPrompt, prompt) != 0))
-        l->needs_refresh = true;
+    if (l->is_supported) {
+        size_t promptLen = prompt != NULL ? strlen(prompt) : 0;
+        linenoiseString newPrompt = {NULL, NULL, 0, 0, 0};
+        if (prompt != NULL) {
+            if (parseLine(prompt, promptLen, &newPrompt) == -1) return -1;
+        }
 
-    if (l->prompt != NULL) {
-        free(l->prompt);
-        l->prompt = NULL;
-        l->plen = 0;
-    }
-    if (prompt != NULL) {
-        l->prompt = strdup(prompt);
-        l->plen = strlen(prompt);
-        if (l->prompt == NULL) {
-            errno = ENOMEM;
-            return -1;
+        linenoiseString *oldPrompt = getPrompt(l);
+        if ((oldPrompt->buf == NULL && newPrompt.buf != NULL)
+                || (oldPrompt->buf != NULL && newPrompt.buf == NULL)
+                || (oldPrompt->buf != NULL && newPrompt.buf != NULL
+                        && strcmp(oldPrompt->buf, newPrompt.buf) != 0))
+            l->needs_refresh = true;
+
+        if (l->prompt.buf != NULL) freeString(&l->prompt);
+        l->prompt = newPrompt;
+    } else {
+        if ((l->prompt.buf != NULL && prompt == NULL)
+                || (l->prompt.buf == NULL && prompt != NULL)
+                || (l->prompt.buf != NULL && prompt != NULL
+                        && strcmp(l->prompt.buf, prompt) != 0)) {
+            free(l->prompt.buf);
+            l->prompt.buf = NULL;
+            if (prompt != NULL) {
+                l->prompt.buf = strdup(prompt);
+                if (l->prompt.buf == NULL) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+            }
         }
     }
     return 0;
@@ -572,26 +747,21 @@ int setPrompt(struct linenoiseState *l, const char *prompt)
  * priority over the main prompt. */
 int setTempPrompt(struct linenoiseState *l, const char *tempprompt)
 {
-    char *oldPrompt = getPrompt(l, NULL);
-    if ((oldPrompt == NULL && tempprompt != NULL)
-            || (oldPrompt != NULL && tempprompt == NULL)
-            || (oldPrompt != NULL && tempprompt != NULL
-                    && strcmp(oldPrompt, tempprompt) != 0))
+    size_t promptLen = tempprompt != NULL ? strlen(tempprompt) : 0;
+    linenoiseString newPrompt = {NULL, NULL, 0, 0, 0};
+    if (tempprompt != NULL) {
+        if (parseLine(tempprompt, promptLen, &newPrompt) == -1) return -1;
+    }
+
+    linenoiseString *oldPrompt = getPrompt(l);
+    if ((oldPrompt->buf == NULL && newPrompt.buf != NULL)
+            || (oldPrompt->buf != NULL && newPrompt.buf == NULL)
+            || (oldPrompt->buf != NULL && newPrompt.buf != NULL
+                    && strcmp(oldPrompt->buf, newPrompt.buf) != 0))
         l->needs_refresh = true;
 
-    if (l->tempprompt != NULL) {
-        free(l->tempprompt);
-        l->tempprompt = NULL;
-        l->tempplen = 0;
-    }
-    if (tempprompt != NULL) {
-        l->tempprompt = strdup(tempprompt);
-        l->tempplen = strlen(tempprompt);
-        if (l->tempprompt == NULL) {
-            errno = ENOMEM;
-            return -1;
-        }
-    }
+    if (l->tempprompt.buf != NULL) freeString(&l->tempprompt);
+    l->tempprompt = newPrompt;
     return 0;
 }
 
@@ -601,34 +771,35 @@ int setTempPrompt(struct linenoiseState *l, const char *tempprompt)
  * cursor position, and number of columns of the terminal. */
 static int refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen;
-    char *prompt = getPrompt(l, &plen);
+    linenoiseString *prompt = getPrompt(l);
     int fd = l->fd;
-    char *buf = l->buf;
-    size_t len = l->len;
+    size_t charpos = 0;
+    size_t charlen = l->line.charlen;
     size_t pos = l->pos;
     
-    while((plen+pos) >= l->cols) {
-        buf++;
-        len--;
+    while((prompt->charlen+pos) >= l->cols) {
+        charpos++;
+        charlen--;
         pos--;
     }
-    while (plen+len > l->cols) {
-        len--;
+    while (prompt->charlen+charlen > l->cols) {
+        charlen--;
     }
+    char *buf = getCharAt(&l->line, charpos);
+    size_t bytelen = getCharAt(&l->line, charpos+charlen) - buf;
 
     /* Cursor to left edge */
     if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
     if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && plen > 0 && RETRY(write(fd,prompt,plen)) == -1) return -1;
-    if (RETRY(write(fd,buf,len)) == -1) return -1;
+    if (prompt != NULL && prompt->bytelen > 0 && RETRY(write(fd,prompt->buf,prompt->bytelen)) == -1) return -1;
+    if (RETRY(write(fd,buf,bytelen)) == -1) return -1;
     /* Erase to right */
     if (snprintf(seq,64,"\x1b[0K") < 0) return -1;
     if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     /* Move cursor to original position. */
-    if (pos+plen != 0) {
-        if (snprintf(seq,64,"\x1b[0G\x1b[%zuC", (pos+plen)) < 0) return -1;
+    if (pos+prompt->charlen != 0) {
+        if (snprintf(seq,64,"\x1b[0G\x1b[%zuC", (pos+prompt->charlen)) < 0) return -1;
         if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     }
     return 0;
@@ -640,9 +811,8 @@ static int refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static int refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen;
-    char *prompt = getPrompt(l, &plen);
-    int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
+    linenoiseString *prompt = getPrompt(l);
+    int rows = (prompt->charlen+l->line.charlen+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = l->oldrpos;  /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
     int old_rows = l->maxrows;
@@ -684,14 +854,14 @@ static int refreshMultiLine(struct linenoiseState *l) {
     if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
     
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && plen > 0 && RETRY(write(fd,prompt,plen)) == -1) return -1;
-    if (RETRY(write(fd,l->buf,l->len)) == -1) return -1;
+    if (prompt != NULL && prompt->bytelen > 0 && RETRY(write(fd,prompt->buf,prompt->bytelen)) == -1) return -1;
+    if (RETRY(write(fd,l->line.buf,l->line.bytelen)) == -1) return -1;
 
     /* If we are at the very end of the screen with our prompt, we need to
      * emit a newline and move the prompt to the first column. */
     if (l->pos &&
-        l->pos == l->len &&
-        (l->pos+plen) % l->cols == 0)
+        l->pos == l->line.charlen &&
+        (l->pos+prompt->charlen) % l->cols == 0)
     {
 #ifdef LN_DEBUG
         fprintf(fp,", <newline>");
@@ -704,7 +874,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     }
 
     /* Move cursor to right position. */
-    rpos2 = (plen+l->pos+l->cols)/l->cols; /* current cursor relative row. */
+    rpos2 = (prompt->charlen+l->pos+l->cols)/l->cols; /* current cursor relative row. */
 #ifdef LN_DEBUG
     fprintf(fp,", rpos2 %d", rpos2);
 #endif
@@ -720,7 +890,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
 #ifdef LN_DEBUG
     fprintf(fp,", set col %zu", 1+((plen+l->pos) % l->cols));
 #endif
-    if (snprintf(seq,64,"\x1b[%zuG", 1+((plen+l->pos) % l->cols)) < 0) return -1;
+    if (snprintf(seq,64,"\x1b[%zuG", 1+((prompt->charlen+l->pos) % l->cols)) < 0) return -1;
     if (write(fd,seq,strlen(seq)) == -1) return -1;
 
     l->oldpos = l->pos;
@@ -762,16 +932,18 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
         struct linenoiseState oldstate = *l;
-        l->tempprompt = "";
-        l->tempplen = 0;
-        l->len = l->pos = 0;
+        l->tempprompt.buf = "";
+        l->tempprompt.bytelen = l->tempprompt.charlen = 0;
+        l->line.charlen = l->line.bytelen = l->pos = 0;
 
         if (refreshLine(l) == -1) return -1;
 
         l->tempprompt = oldstate.tempprompt;
-        l->tempplen = oldstate.tempplen;
+        l->tempprompt.bytelen = oldstate.tempprompt.bytelen;
+        l->tempprompt.charlen = oldstate.tempprompt.charlen;
         l->pos = oldstate.pos;
-        l->len = oldstate.len;
+        l->line.charlen = oldstate.line.charlen;
+        l->line.bytelen = oldstate.line.bytelen;
 
         resetOnNewline(l);
     }
@@ -797,7 +969,7 @@ static int prepareCustomOutputOnNewLine(struct linenoiseState *l)
 {
     if (l->is_displayed) {
         struct linenoiseState oldstate = *l;
-        l->pos = l->len;
+        l->pos = l->line.charlen;
         if (refreshLine(l) == -1) return -1;
 
         printf("\r\n");
@@ -811,123 +983,144 @@ static int prepareCustomOutputOnNewLine(struct linenoiseState *l)
 
 /* Ensure that the read buffer is big enough.
  * Returns 0 on success, -1 on error. */
-static int ensureBufLen(struct linenoiseState *l, size_t requestedStrLen)
+static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
 {
-    if (l->buflen < requestedStrLen) {
-        size_t newlen = l->buflen + LINENOISE_LINE_INIT_MAX_AND_GROW;
-        while (newlen < requestedStrLen)
+    size_t newlen = s->buflen;
+    if (s->buflen == 0) {
+        newlen = requestedBufLen;
+    } else if (s->buflen < requestedBufLen) {
+        newlen = s->buflen + LINENOISE_LINE_INIT_MAX_AND_GROW;
+        while (newlen < requestedBufLen)
             newlen += LINENOISE_LINE_INIT_MAX_AND_GROW;
+    } else
+        return 0;
 
-        char *newbuf = realloc(l->buf, newlen);
-        if (newbuf == NULL) {
+    if (s->buflen < newlen) {
+        char *newbuf = s->buf ? realloc(s->buf, newlen*sizeof(s->buf[0])) :
+                                malloc(newlen*sizeof(s->buf[0]));
+        size_t *newcharindex = s->charindex ? realloc(s->charindex, newlen*sizeof(s->charindex[0])) :
+                                              malloc(newlen*sizeof(s->charindex[0]));
+        s->buf = newbuf != NULL ? newbuf : s->buf;
+        s->charindex = newcharindex != NULL ? newcharindex : s->charindex;
+        if (newbuf == NULL || newcharindex == NULL) {
             errno = ENOMEM;
             return -1;
         }
-        l->buf = newbuf;
-        l->buflen = newlen;
-        l->buf[l->buflen-1] = '\0';
+        s->buf = newbuf;
+        s->charindex = newcharindex;
+
+        if (s->buflen == 0)
+            s->buf[0] = '\0';
+
+        s->buflen = newlen;
+        s->buf[s->buflen-1] = '\0';
+        s->charindex[0] = 0;
     }
     return 0;
 }
 
 /* Decodes ANSI escape sequence.
  * Returns ReadCharSpecials or RCS_NONE in case unknown sequence is read. */
-int ansiDecode(struct linenoiseAnsi *la)
+const struct linenoiseChar *ansiDecode(struct linenoiseAnsi *la)
 {
     if (la->ansi_sequence_meaning == ASM_CSI) {
         switch (la->ansi_final)
         {
         case 0x41:
             if (la->ansi_parameter_len == 0)
-                return RCS_CURSOR_UP;
+                return getChar(&la->temp_char, RCS_CURSOR_UP);
             else
                 break;
         case 0x42:
             if (la->ansi_parameter_len == 0)
-                return RCS_CURSOR_DOWN;
+                return getChar(&la->temp_char, RCS_CURSOR_DOWN);
             else
                 break;
         case 0x43:
             if (la->ansi_parameter_len == 0)
-                return RCS_CURSOR_RIGHT;
+                return getChar(&la->temp_char, RCS_CURSOR_RIGHT);
             else
                 break;
         case 0x44:
             if (la->ansi_parameter_len == 0)
-                return RCS_CURSOR_LEFT;
+                return getChar(&la->temp_char, RCS_CURSOR_LEFT);
             else
                 break;
         case 0x46:
             if (la->ansi_parameter_len == 0)
-                return RCS_END;
+                return getChar(&la->temp_char, RCS_END);
             else
                 break;
         case 0x48:
             if (la->ansi_parameter_len == 0)
-                return RCS_HOME;
+                return getChar(&la->temp_char, RCS_HOME);
             else
                 break;
         case 0x7E: {    // 0x70 to 0x7E are fpr private use as per ECMA-048
             if (strcmp(la->ansi_parameter, "1") == 0)
-                return RCS_HOME;
+                return getChar(&la->temp_char, RCS_HOME);
             else if (strcmp(la->ansi_parameter, "3") == 0)
-                return RCS_DELETE;
+                return getChar(&la->temp_char, RCS_DELETE);
             if (strcmp(la->ansi_parameter, "4") == 0)
-                return RCS_END;
+                return getChar(&la->temp_char, RCS_END);
             break;
         }
         default: break;
         }
     }
-    return RCS_NONE;
+    return &CHAR_NONE;
 }
 
 /* Add ANSI character sequence and process the state.
  * Return true in case of success, false on failure. */
-bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
+bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
 {
+    // Ignore DEL
+    if (c->unicodeChar == CERASE)
+        return true;
+
     if (la->ansi_escape_len == 0) {
-        la->ansi_escape[la->ansi_escape_len++] = c;
+        la->ansi_escape[la->ansi_escape_len++] = *c;
         la->ansi_intermediate_len = 0;
         la->ansi_parameter_len = 0;
         la->ansi_sequence_meaning = ASM_C1;
         la->ansi_state = AES_INTERMEDIATE;
     } else {
-        if (la->ansi_state == AES_INTERMEDIATE && c >= 0x20 && c <= 0x2F) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = c;
-        } else if (la->ansi_state == AES_CSI_INTERMEDIATE && c >= 0x20 && c < 0x2F) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = c;
-        } else if (la->ansi_state == AES_CSI_PARAMETER && c >= 0x20 && c < 0x2F) {
+        if (la->ansi_state == AES_INTERMEDIATE && c->unicodeChar >= 0x20 && c->unicodeChar <= 0x2F) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+        } else if (la->ansi_state == AES_CSI_INTERMEDIATE && c->unicodeChar >= 0x20 && c->unicodeChar < 0x2F) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+        } else if (la->ansi_state == AES_CSI_PARAMETER && c->unicodeChar >= 0x20 && c->unicodeChar < 0x2F) {
             la->ansi_state = AES_CSI_INTERMEDIATE;
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = c;
-        } else if (la->ansi_state == AES_CSI_PARAMETER && c >= 0x30 && c < 0x3F) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_parameter[la->ansi_parameter_len++] = c;
-        } else if (la->ansi_state == AES_INTERMEDIATE && c >= 0x30 && c < 0x7F ) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            if (la->ansi_escape_len == 2 && c == 0x5B) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+        } else if (la->ansi_state == AES_CSI_PARAMETER && c->unicodeChar >= 0x30 && c->unicodeChar < 0x3F) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_parameter[la->ansi_parameter_len++] = (char)c->unicodeChar;
+        } else if (la->ansi_state == AES_INTERMEDIATE && c->unicodeChar >= 0x30 && c->unicodeChar < 0x7F ) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            if (la->ansi_escape_len == 2 && c->unicodeChar == 0x5B) {
                 la->ansi_state = AES_CSI_PARAMETER;
                 la->ansi_sequence_meaning = ASM_CSI;
-            } else if (la->ansi_escape_len == 2 && c == 0x4E) {
+            } else if (la->ansi_escape_len == 2 && c->unicodeChar == 0x4E) {
                 la->ansi_state = AES_SS_CHARACTER;
                 la->ansi_sequence_meaning = ASM_G2;
-            } else if (la->ansi_escape_len == 2 && c == 0x4F) {
+            } else if (la->ansi_escape_len == 2 && c->unicodeChar == 0x4F) {
                 la->ansi_state = AES_SS_CHARACTER;
                 la->ansi_sequence_meaning = ASM_G3;
             } else {
-                la->ansi_final = c;
+                la->ansi_final = (char)c->unicodeChar;
                 la->ansi_state = AES_FINAL;
             }
-        } else if ((la->ansi_state == AES_CSI_INTERMEDIATE || la->ansi_state == AES_CSI_PARAMETER) && c >= 0x40 && c < 0x7F) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_final = c;
+        } else if ((la->ansi_state == AES_CSI_INTERMEDIATE || la->ansi_state == AES_CSI_PARAMETER) && c->unicodeChar >= 0x40 && c->unicodeChar < 0x7F) {
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_final = (char)c->unicodeChar;
             la->ansi_state = AES_FINAL;
         } else if (la->ansi_state == AES_SS_CHARACTER) {
-            la->ansi_escape[la->ansi_escape_len++] = c;
-            la->ansi_final = c;
+            la->ansi_escape[la->ansi_escape_len++] = *c;
+            la->ansi_final = (char)c->unicodeChar;
             la->ansi_state = AES_FINAL;
         } else {
             // Invalid character
@@ -935,7 +1128,7 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
         }
     }
     if (la->ansi_state == AES_FINAL) {
-        la->ansi_escape[la->ansi_escape_len] = '\0';
+        la->ansi_escape[la->ansi_escape_len] = CHAR_NONE;
         la->ansi_parameter[la->ansi_parameter_len] = '\0';
         la->ansi_intermediate[la->ansi_intermediate_len] = '\0';
     }
@@ -944,15 +1137,15 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, unsigned char c)
 
 /* Add character or ReadCharSpecials value to be first returned by next call to
  * readChar(). Returns true if successful, false if argument was RCS_NONE. */
-bool pushFrontChar(struct linenoiseState *l, int c)
+bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
 {
-    if (c != RCS_NONE) {
+    if (c->unicodeChar != RCS_NONE) {
         if (l->read_back_char_len == READ_BACK_MAX_LEN)
             l->read_back_char_len--;
         if (l->read_back_char_len > 0)
             memmove(l->read_back_char + 1, l->read_back_char,
                     l->read_back_char_len * sizeof(l->read_back_char[0]));
-        l->read_back_char[0] = c;
+        l->read_back_char[0] = *c;
         l->read_back_char_len++;
         return true;
     } else {
@@ -960,159 +1153,335 @@ bool pushFrontChar(struct linenoiseState *l, int c)
     }
 }
 
-/* Read character and decode ANSI escape sequences.
- * Returns character code (value greater than zero), or one of ReadCharSpecials
- * values, but never RCS_NONE (0). */
-int readChar(struct linenoiseState *l)
+bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int count)
 {
-    int result = RCS_NONE;
-    unsigned char c;
+    int i;
+    bool allAdded = false;
+    if (count > 0) {
+        allAdded = true;
+        for (i = 0; i < count; i++) {
+            if (c->unicodeChar != RCS_NONE && l->read_back_char_len < READ_BACK_MAX_LEN) {
+                l->read_back_char[l->read_back_char_len++] = *c;
+            } else {
+                allAdded = false;
+                if (l->read_back_char_len == READ_BACK_MAX_LEN)
+                    break;
+            }
+        }
+    }
+    return allAdded;
+}
+
+bool pushBackRawChars(struct linenoiseState *l, const struct linenoiseChar *c)
+{
+    if (c->rawCharsLen > 0) {
+        int i;
+        bool allAdded = true;
+        for (i = 0; i < c->rawCharsLen; i++) {
+            struct linenoiseChar character;
+            (void) getChar(&character, c->rawChars[i]);
+            allAdded = pushBackChars(l, &character, 1) && allAdded;
+        }
+        return allAdded;
+    } else
+        return false;
+}
+
+/* Read single character.
+ * Returns character code, or one of ReadCharSpecials values, but never
+ * RCS_NONE (0). */
+const linenoiseChar *readRawChar(struct linenoiseState *l)
+{
+    static const linenoiseChar NONE = { RCS_NONE, {0}, 0 };
+
+    const linenoiseChar *result = NULL;
     int nread = -1;
+    int selectresult = 1;
+    unsigned char c;
+
+    if (l->rawChar.is_emited) {
+        l->rawChar.currentChar.unicodeChar = RCS_NONE;
+        l->rawChar.currentChar.rawCharsLen = 0;
+        l->rawChar.is_emited = false;
+        memset(&l->rawChar.readingState, 0, sizeof(l->rawChar.readingState));
+    } else if (l->rawChar.currentChar.unicodeChar != RCS_NONE) {
+        l->rawChar.is_emited = true;
+        return &l->rawChar.currentChar;
+    }
+
+    // pselect is always interrupted by EINTR in case of an interrupt
+    if (l->is_async) {
+        // Temporarily restore old mask
+        (void) revertSignals(l);
+        nread = read(l->fd, &c, 1);
+        (void) blockSignals(l);
+    } else {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(l->fd, &fds);
+
+        // Do select with enabled interrupts
+        selectresult = pselect(l->fd + 1, &fds, NULL, NULL, NULL, &l->sigint_oldmask);
+        if (selectresult == 1)
+            nread = read(l->fd, &c, 1);
+    }
+
+    if (nread > 0) {
+        int saved_errno = errno;
+        int insertIndex = l->rawChar.currentChar.rawCharsLen;
+        l->rawChar.currentChar.rawCharsLen++;
+        l->rawChar.currentChar.rawChars[insertIndex] = c;
+        size_t validChars = mbrlen(
+                (char*)l->rawChar.currentChar.rawChars + insertIndex, 1,
+                &l->rawChar.readingState);
+        errno = saved_errno;
+        switch (validChars)
+        {
+        case (size_t)-1:
+            pushBackRawChars(l, &l->rawChar.currentChar);
+            l->rawChar.is_emited = true;
+            break;
+        case (size_t)-2:
+            break;
+        default:
+            {
+                int saved_errno = errno;
+                wchar_t character = 0;
+                const char *rawChars = (char*)l->rawChar.currentChar.rawChars;
+                mbstate_t state;
+                memset(&state, 0, sizeof(state));
+                l->rawChar.currentChar.rawChars[l->rawChar.currentChar.rawCharsLen] =
+                        '\0';
+                if (mbsrtowcs(&character, &rawChars, 1, &state) == (size_t)-1) {
+                    pushBackRawChars(l, &l->rawChar.currentChar);
+                    l->rawChar.is_emited = true;
+                } else {
+                    l->rawChar.currentChar.unicodeChar = character;
+                }
+                errno = saved_errno;
+            }
+        }
+        if (l->rawChar.currentChar.rawCharsLen == MAX_RAW_CHARS) {
+            // No more characters to store, but still no valid one read
+            pushBackRawChars(l, &l->rawChar.currentChar);
+            l->rawChar.is_emited = true;
+        }
+    } else if (nread == 0) {
+        if (l->rawChar.currentChar.rawCharsLen > 0) {
+            pushBackRawChars(l, &l->rawChar.currentChar);
+            l->rawChar.is_emited = true;
+        } else {
+            l->rawChar.currentChar.unicodeChar = RCS_CLOSED;
+        }
+    } else {
+        // Some error
+        result = &CHAR_ERROR;
+    }
 
     if (l->is_cancelled) {
         l->is_cancelled = false;
-        return RCS_CANCELLED;
+        result = &CHAR_CANCELLED;
     }
 
-    while (result == RCS_NONE) {
+    if (result == NULL && !l->rawChar.is_emited && l->rawChar.currentChar.unicodeChar != RCS_NONE) {
+        l->rawChar.is_emited = true;
+        result = &l->rawChar.currentChar;
+    } else if (result == NULL) {
+        result = &NONE;
+    }
+
+    return result;
+}
+
+/* Read character and decode ANSI escape sequences.
+ * Returns character code (value greater than zero), or one of ReadCharSpecials
+ * values, but never RCS_NONE (0). */
+const linenoiseChar *readChar(struct linenoiseState *l)
+{
+    const linenoiseChar *c = &CHAR_NONE;
+
+    if (l->is_cancelled) {
+        l->is_cancelled = false;
+        return &CHAR_CANCELLED;
+    }
+
+    while (c->unicodeChar == RCS_NONE
+            || (c->unicodeChar == RCS_ERROR && errno == EINTR)) {
         if (l->needs_refresh) {
-            if (refreshLine(l) == -1) return -1;
+            if (refreshLine(l) == -1) return &CHAR_ERROR;
         }
+
         if (l->read_back_char_len > 0) {
-            result = l->read_back_char[0];
+            l->read_back_return = l->read_back_char[0];
+            c = &l->read_back_return;
             l->read_back_char_len--;
             if (l->read_back_char_len > 0) {
                 memmove(l->read_back_char, l->read_back_char + 1,
                         l->read_back_char_len * sizeof(l->read_back_char[0]));
             }
-        } else {
-            int selectresult = 1;
-            nread = -1;
-
-            do {
-                errno = 0;
-
-                // pselect is always interrupted by EINTR in case of an interrupt
-                if (l->is_async) {
-                    // Temporarily restore old mask
-                    (void) revertSignals(l);
-                    nread = read(l->fd, &c, 1);
-                    (void) blockSignals(l);
-                } else {
-                    fd_set fds;
-                    FD_ZERO(&fds);
-                    FD_SET(l->fd, &fds);
-
-                    // Do select with enabled interrupts
-                    selectresult = pselect(l->fd + 1, &fds, NULL, NULL, NULL, &l->sigint_oldmask);
-                    if (selectresult == 1)
-                        nread = read(l->fd, &c, 1);
-                }
-
-                if (l->is_cancelled) {
-                    l->is_cancelled = false;
-                    result = RCS_CANCELLED;
-                }
-                if (l->needs_refresh) {
-                    if (refreshLine(l) == -1) return -1;
-                }
-
-                // Check expiration of ESC key and sequence recognition
-                if (l->ansi.ansi_timer_is_active) {
-                    int old_errno = errno;
-                    struct itimerspec timerExpiry = {{0, 0}, {0, 0}};
-                    if (timer_gettime(l->ansi.ansi_timer, &timerExpiry) == -1) return -1;
-                    if (timerExpiry.it_value.tv_sec == 0 && timerExpiry.it_value.tv_nsec == 0) {
-                        // Timer expired - it was an ESC key
-                        l->ansi.ansi_timer_is_active = false;
-                        if (result != RCS_NONE) {
-                            pushFrontChar(l, result);
-                            result = 27;
-                        } else {
-                            if (nread < 0 && (old_errno == EINTR || old_errno == EAGAIN || old_errno == EWOULDBLOCK)) {
-                                result = 27;
-                            } else {
-                                pushFrontChar(l, 27);
-                            }
-                        }
-                    } else if (nread == 1) {
-                        // Timer has not expired and we received a key
-                        l->ansi.ansi_timer_is_active = false;
-                        (void) ansiAddCharacter(&l->ansi, 27);
-
-                        struct itimerspec timerDisarm = {{0, 0}, {0, 0}};
-                        if (timer_settime(l->ansi.ansi_timer, 0, &timerDisarm, NULL) == -1) return -1;
-                    }
-                    errno = old_errno;
-                }
-            } while (result == RCS_NONE && nread < 0 && errno == EINTR);
+            // Break now - do not allow further processing (prevent looping over
+            // the same wrong escape sequences)
+            if (c->unicodeChar != RCS_NONE)
+                break;
         }
 
-        if (result == RCS_NONE) {
-            if (nread < 0) {
-                result = RCS_ERROR;
-            } else if (nread == 0) {
-                result = RCS_CLOSED;
-            } else if (l->ansi.ansi_escape_len == 0 && c != 27) {
-                result = c;
-            } else if (l->ansi.ansi_escape_len == 0) {
+        if (l->cached_read_char.unicodeChar != RCS_NONE) {
+            l->read_back_return = l->cached_read_char;
+            l->cached_read_char.unicodeChar = RCS_NONE;
+            c = &l->read_back_return;
+        } else {
+            c = readRawChar(l);
+        }
+
+        int saved_errno = errno;
+
+        if (l->needs_refresh) {
+            if (refreshLine(l) == -1) return &CHAR_ERROR;
+        }
+
+        // Check expiration of ESC key and sequence recognition
+        if (l->ansi.ansi_timer_is_active) {
+            // Re-evaluate the logic to use the new character
+            struct itimerspec timerExpiry = {{0, 0}, {0, 0}};
+            if (timer_gettime(l->ansi.ansi_timer, &timerExpiry) == -1) return &CHAR_ERROR;
+            if (timerExpiry.it_value.tv_sec == 0 && timerExpiry.it_value.tv_nsec == 0) {
+                // Timer expired - it was an ESC key
+                l->ansi.ansi_timer_is_active = false;
+                if (c->unicodeChar > RCS_NONE) {
+                    l->cached_read_char = *c;
+                    pushFrontChar(l, &l->ansi.escape);
+                    c = &CHAR_NONE;
+                } else {
+                    pushFrontChar(l, &l->ansi.escape);
+                    if (c->unicodeChar == RCS_CLOSED
+                        || (c->unicodeChar == RCS_ERROR
+                                && (saved_errno == EINTR
+                                || saved_errno == EAGAIN
+                                || saved_errno == EWOULDBLOCK))) {
+                        c = &CHAR_NONE;
+                    }
+                }
+            } else if (c->unicodeChar > RCS_NONE) {
+                // Timer has not expired and we received a key
+                l->ansi.ansi_timer_is_active = false;
+                (void) ansiAddCharacter(&l->ansi, &l->ansi.escape);
+
+                struct itimerspec timerDisarm = {{0, 0}, {0, 0}};
+                if (timer_settime(l->ansi.ansi_timer, 0, &timerDisarm, NULL) == -1)
+                    return &CHAR_ERROR;
+            }
+        }
+
+        errno = saved_errno;
+
+        if (c->unicodeChar > RCS_NONE) {
+            if (l->ansi.ansi_escape_len == 0 && c->unicodeChar == CESC) {
                 // ANSI escape begin, set the timer
+                l->ansi.escape = *c;
+
                 struct itimerspec timerNext = {it_value: {tv_nsec: ANSI_ESCAPE_WAIT_MS * 1000000L}};
-                if (timer_settime(l->ansi.ansi_timer, 0, &timerNext, NULL) == -1) return -1;
+                if (timer_settime(l->ansi.ansi_timer, 0, &timerNext, NULL) == -1) return &CHAR_ERROR;
                 l->ansi.ansi_timer_is_active = true;
-            } else {
+                c = &CHAR_NONE;
+            } else if (l->ansi.ansi_escape_len != 0) {
                 // ANSI escape continuation
                 if (ansiAddCharacter(&l->ansi, c)) {
                     if (l->ansi.ansi_state == AES_FINAL) {
-                        result = ansiDecode(&l->ansi);
+                        c = ansiDecode(&l->ansi);
                         l->ansi.ansi_escape_len = 0;
+                    } else {
+                        c = &CHAR_NONE;
                     }
                 } else {
-                    if (l->read_back_char_len + l->ansi.ansi_escape_len < READ_BACK_MAX_LEN) {
-                        int i;
-                        for (i = 0; i < l->ansi.ansi_escape_len; i++) {
-                            l->read_back_char[l->read_back_char_len++] =
-                                    (unsigned char) l->ansi.ansi_escape[i];
-                        }
-                    }
+                    pushBackChars(l, l->ansi.ansi_escape, l->ansi.ansi_escape_len);
+                    l->cached_read_char = *c;
                     l->ansi.ansi_escape_len = 0;
+                    c = &CHAR_NONE;
                 }
             }
+        } else if (l->ansi.ansi_escape_len != 0 && c->unicodeChar == RCS_CLOSED) {
+            pushBackChars(l, l->ansi.ansi_escape, l->ansi.ansi_escape_len);
+            l->ansi.ansi_escape_len = 0;
+            c = &CHAR_NONE;
         }
     }
-    return result;
+    return c;
+}
+
+int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t charpos) {
+    if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
+        size_t pos = charpos <= s->charlen ? charpos : s->charlen;
+        size_t newLen = s->bytelen + c->rawCharsLen;
+        if (ensureBufLen(s, newLen + 1) == -1) return -1;
+        if (s->charlen == pos) {
+            memcpy(s->buf+s->bytelen, c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+            s->charlen++;
+            s->bytelen += c->rawCharsLen;
+            s->buf[s->bytelen] = '\0';
+            s->charindex[s->charlen] = s->bytelen;
+        } else {
+            int i;
+            memmove(getCharAt(s, pos)+c->rawCharsLen, getCharAt(s, pos), (s->bytelen-s->charindex[pos]+1)*sizeof(s->buf[0]));
+            memmove(s->charindex+pos+1, s->charindex+pos, (s->charlen-pos+1)*sizeof(s->charindex[0]));
+            memcpy(getCharAt(s, pos), c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+            s->charlen++;
+            s->bytelen += c->rawCharsLen;
+            for (i = pos; i <= s->charlen; ++i)
+                s->charindex[i] += c->rawCharsLen;
+            s->buf[s->bytelen] = '\0';
+        }
+        return 1;
+    }
+    return 0;
 }
 
 /* Insert the character 'c' at cursor current position.
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
-int linenoiseEditInsert(struct linenoiseState *l, int c) {
-    if (c >= 32) {
-        if (l->len < l->buflen) {
-            if (l->len == l->pos) {
-                l->buf[l->pos] = c;
-                l->pos++;
-                l->len++;
-                l->buf[l->len] = '\0';
-                if ((!mlmode && l->plen+l->len < l->cols) /* || mlmode */) {
-                    /* Avoid a full update of the line in the
-                     * trivial case. */
-                    if (RETRY(write(l->fd,&c,1)) == -1) return -1;
-                } else {
-                    if (refreshLine(l) == -1) return -1;
-                }
+int linenoiseEditInsert(struct linenoiseState *l, const struct linenoiseChar *c) {
+    int inserted = insertChar(&l->line, c, l->pos);
+    if (inserted == -1) return -1;
+    if (inserted > 0) {
+        l->pos++;
+        if (l->pos == l->line.charlen) {
+            if ((!mlmode && l->line.charlen+l->line.charlen < l->cols) /* || mlmode */) {
+                /* Avoid a full update of the line in the
+                 * trivial case. */
+                if (RETRY(write(l->fd,c->rawChars,c->rawCharsLen)) == -1) return -1;
             } else {
-                memmove(l->buf+l->pos+1,l->buf+l->pos,l->len-l->pos);
-                l->buf[l->pos] = c;
-                l->len++;
-                l->pos++;
-                l->buf[l->len] = '\0';
                 if (refreshLine(l) == -1) return -1;
             }
-            return 0;
         } else {
-            if (ensureBufLen(l, l->len + 1) == -1) return -1;
+            if (refreshLine(l) == -1) return -1;
+        }
+        return 0;
+    } else {
+        return 0;
+    }
+}
+
+int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c) {
+    if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
+        if (l->line.charlen == l->pos) {
             return linenoiseEditInsert(l, c);
+        } else {
+            int i;
+            size_t curCharLen = getCharSizeAt(&l->line, l->pos);
+            int diff = c->rawCharsLen - curCharLen;
+            if (diff > 0) {
+                size_t newLen = l->line.bytelen + diff;
+                if (ensureBufLen(&l->line, newLen + 1) == -1) return -1;
+            }
+            memmove(getCharAt(&l->line, l->pos)+c->rawCharsLen, getCharAt(&l->line, l->pos)+curCharLen,
+                    (l->line.charindex[l->line.charlen] - l->line.charindex[l->pos + 1])*sizeof(l->line.buf[0]));
+            memcpy(getCharAt(&l->line, l->pos), c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+            l->pos++;
+            l->line.bytelen += diff;
+            for (i = l->pos; i <= l->line.charlen; ++i)
+                l->line.charindex[i] += diff;
+            l->line.buf[l->line.bytelen] = '\0';
+            if (refreshLine(l) == -1) return -1;
+            return 0;
         }
     } else {
         return 0;
@@ -1122,22 +1491,14 @@ int linenoiseEditInsert(struct linenoiseState *l, int c) {
 /* Cancel the line editing. */
 int cancelInternal(struct linenoiseState *l)
 {
-    if (l->pos + 2 <= l->len) {
-        l->buf[l->pos] = '^';
-        l->buf[l->pos + 1] = 'C';
-        l->pos = l->len;
-        if (refreshLine(l) == -1) return -1;
-    } else if (l->pos + 1 == l->len) {
-        l->buf[l->pos] = '^';
-        l->pos = l->len;
-        if (refreshLine(l) == -1) return -1;
-        if (linenoiseEditInsert(l, 'C') == -1) return -1;
-    } else {
-        if (linenoiseEditInsert(l, '^') == -1) return -1;
-        if (linenoiseEditInsert(l, 'C') == -1) return -1;
-    }
+    linenoiseChar c;
+    if (linenoiseEditReplace(l, getChar(&c, '^')) == -1) return -1;
+    if (linenoiseEditReplace(l, getChar(&c, 'C')) == -1) return -1;
 
-    l->len = 0;
+    l->pos = l->line.charlen;
+    if (refreshLine(l) == -1) return -1;
+
+    clearString(&l->line);
     resetOnNewline(l);
 
     return 0;
@@ -1155,7 +1516,7 @@ int linenoiseEditMoveLeft(struct linenoiseState *l) {
 
 /* Move cursor on the right. */
 int linenoiseEditMoveRight(struct linenoiseState *l) {
-    if (l->pos != l->len) {
+    if (l->pos != l->line.charlen) {
         l->pos++;
         return refreshLine(l);
     }
@@ -1167,7 +1528,7 @@ int linenoiseEditMoveRight(struct linenoiseState *l) {
 int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
     if (history_len > 1) {
         free(history[history_len - 1 - l->history_index]);
-        history[history_len - 1 - l->history_index] = strdup(l->buf);
+        history[history_len - 1 - l->history_index] = strdup(l->line.buf);
         if (history[history_len - 1 - l->history_index] == NULL) {
             errno = ENOMEM;
             return -1;
@@ -1187,10 +1548,8 @@ int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
         return 0;
     }
     size_t hist_strlen = strlen(history[history_len - 1 - l->history_index]);
-    if (ensureBufLen(l, hist_strlen) == -1) return -1;
-    memcpy(l->buf, history[history_len - 1 - l->history_index], hist_strlen+1);
-    l->len = strlen(l->buf);
-    l->pos = MIN(l->len, pos);
+    replaceLine(l, history[history_len - 1 - l->history_index], hist_strlen);
+    l->pos = MIN(l->line.charlen, pos);
     return refreshLine(l);
 
 }
@@ -1213,25 +1572,37 @@ int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
         return 0;
 }
 
+int deleteChar(struct linenoiseString *s, size_t pos)
+{
+    if (s->charlen > 0 && pos < s->charlen) {
+        int i;
+        size_t charSize = getCharSizeAt(s, pos);
+        memmove(getCharAt(s, pos), getCharAt(s, pos + 1),
+                (s->bytelen - s->charindex[pos + 1] + 1) * sizeof(s->buf[0]));
+        memmove(s->charindex + pos, s->charindex + pos + 1,
+                (s->charlen-(pos+1)+1) * sizeof(s->charindex[0]));
+        s->charlen--;
+        s->bytelen -= charSize;
+        for (i = pos; i <= s->charlen; i++)
+            s->charindex[i] -= charSize;
+        return 1;
+    }
+    return 0;
+}
+
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
 int linenoiseEditDelete(struct linenoiseState *l) {
-    if (l->len > 0 && l->pos < l->len) {
-        memmove(l->buf+l->pos,l->buf+l->pos+1,l->len-l->pos-1);
-        l->len--;
-        l->buf[l->len] = '\0';
+    if (deleteChar(&l->line, l->pos) > 0) {
         return refreshLine(l);
     } else return 0;
 }
 
 /* Backspace implementation. */
 int linenoiseEditBackspace(struct linenoiseState *l) {
-    if (l->pos > 0 && l->len > 0) {
-        memmove(l->buf+l->pos-1,l->buf+l->pos,l->len-l->pos);
+    if (l->pos > 0 && l->line.charlen > 0) {
         l->pos--;
-        l->len--;
-        l->buf[l->len] = '\0';
-        return refreshLine(l);
+        return linenoiseEditDelete(l);
     } else return 0;
 }
 
@@ -1239,16 +1610,43 @@ int linenoiseEditBackspace(struct linenoiseState *l) {
  * current word. */
 int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     size_t old_pos = l->pos;
-    size_t diff;
+    size_t chardiff;
+    size_t bytediff;
+    int i;
 
-    while (l->pos > 0 && l->buf[l->pos-1] == ' ')
+    while (l->pos > 0 && getUnicodeCharAt(&l->line, l->pos-1) == ' ')
         l->pos--;
-    while (l->pos > 0 && l->buf[l->pos-1] != ' ')
+    while (l->pos > 0 && getUnicodeCharAt(&l->line, l->pos-1) != ' ')
         l->pos--;
-    diff = old_pos - l->pos;
-    memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
-    l->len -= diff;
+    chardiff = old_pos - l->pos;
+    bytediff = l->line.charindex[old_pos] - l->line.charindex[l->pos];
+    memmove(getCharAt(&l->line, l->pos), getCharAt(&l->line, old_pos),
+            (l->line.bytelen - l->line.charindex[old_pos] + 1)*sizeof(l->line.buf[0]));
+    memmove(l->line.charindex+l->pos, l->line.charindex+old_pos,
+            (l->line.charlen-old_pos+1)*sizeof(l->line.charindex[0]));
+    l->line.charlen -= chardiff;
+    l->line.bytelen -= bytediff;
+    for (i = l->pos; i <= l->line.charlen; i++)
+        l->line.charindex[i] -= bytediff;
     return refreshLine(l);
+}
+
+int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
+    if (l->pos >= 2 && l->pos == l->line.charlen)
+        l->pos--;
+    if (l->pos > 0 && l->pos < l->line.charlen) {
+        char prev[MAX_RAW_CHARS];
+        size_t prevSize = getCharSizeAt(&l->line, l->pos-1);
+        size_t curSize = getCharSizeAt(&l->line, l->pos);
+        memcpy(prev, getCharAt(&l->line, l->pos-1), prevSize*sizeof(l->line.buf[0]));
+        memmove(getCharAt(&l->line, l->pos-1), getCharAt(&l->line, l->pos), curSize*sizeof(l->line.buf[0]));
+        memcpy(getCharAt(&l->line, l->pos-1)+curSize, prev, prevSize*sizeof(l->line.buf[0]));
+        l->line.charindex[l->pos] = l->line.charindex[l->pos-1] + curSize;
+        l->line.charindex[l->pos+1] = l->line.charindex[l->pos] + prevSize;
+        if (l->pos != l->line.charlen) l->pos++;
+        if (refreshLine(l) == -1) return -1;
+    }
+    return 0;
 }
 
 /* Reset state to readling new line. */
@@ -1291,9 +1689,9 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
      * initially is just an empty string. */
     if (l->state == LS_NEW_LINE) {
         /* Buffer starts empty. */
-        if (l->pos != 0 || l->len != 0) {
-            l->pos = l->len = 0;
-            l->buf[0] = '\0';
+        if (l->pos != 0 || l->line.charlen != 0) {
+            clearString(&l->line);
+            l->pos = 0;
             l->needs_refresh = true;
         }
 
@@ -1305,24 +1703,24 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
     if (l->needs_refresh || !l->is_displayed)
         if (refreshLine(l) == -1) return LR_ERROR;
 
-    int c = readChar(l);
+    const linenoiseChar *c = readChar(l);
 
-    if (c == RCS_CLOSED) {
+    if (c->unicodeChar == RCS_CLOSED) {
         if (setClosed(l) == -1) return LR_ERROR;
         return LR_CLOSED;
     }
-    else if (c == RCS_ERROR) {
+    else if (c->unicodeChar == RCS_ERROR) {
         return LR_ERROR;
     }
 
-    switch(c) {
+    switch(c->unicodeChar) {
     case CTRL('M'):     /* enter */
         if (resetState(l) == -1) return LR_ERROR;
         return LR_HAVE_TEXT;
     case RCS_CANCELLED:
     case CTRL('C'):     /* ctrl-c */
     {
-        bool doCancel = (l->len == 0);
+        bool doCancel = (l->line.charlen == 0);
         if (cancelInternal(l) == -1) return LR_ERROR;
         if (resetState(l) == -1) return LR_ERROR;
         if (doCancel)
@@ -1338,7 +1736,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         break;
     case CTRL('D'):     /* ctrl-d, remove char at right of cursor, or of the
                    line is empty, act as end-of-file. */
-        if (l->len > 0) {
+        if (l->line.charlen > 0) {
             if (linenoiseEditDelete(l) == -1) return LR_ERROR;
         } else {
             if (setClosed(l) == -1) return LR_ERROR;
@@ -1346,68 +1744,49 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         }
         break;
     case CTRL('T'):     /* ctrl-t, swaps current character with previous. */
-        if (l->pos > 0 && l->pos < l->len) {
-            int aux = l->buf[l->pos-1];
-            l->buf[l->pos-1] = l->buf[l->pos];
-            l->buf[l->pos] = aux;
-            if (l->pos != l->len-1) l->pos++;
-            if (refreshLine(l) == -1) return LR_ERROR;
-        }
+        if (linenoiseEditSwapCharWithPrevious(l) == -1) return LR_ERROR;
         break;
     case CTRL('B'):     /* ctrl-b */
-        if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
-        break;
-    case CTRL('F'):     /* ctrl-f */
-        if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
-        break;
-    case CTRL('P'):     /* ctrl-p */
-        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV) == -1) return LR_ERROR;
-        break;
-    case CTRL('N'):     /* ctrl-n */
-        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
-        break;
     case RCS_CURSOR_LEFT:
         if (linenoiseEditMoveLeft(l) == -1) return LR_ERROR;
         break;
+    case CTRL('F'):     /* ctrl-f */
     case RCS_CURSOR_RIGHT:
         if (linenoiseEditMoveRight(l) == -1) return LR_ERROR;
         break;
+    case CTRL('P'):     /* ctrl-p */
     case RCS_CURSOR_UP:
+        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV) == -1) return LR_ERROR;
+        break;
+    case CTRL('N'):     /* ctrl-n */
     case RCS_CURSOR_DOWN:
-        if (linenoiseEditHistoryNext(l,
-                c == RCS_CURSOR_UP ? LINENOISE_HISTORY_PREV :
-                                          LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
+        if (linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT) == -1) return LR_ERROR;
         break;
     case RCS_DELETE:
         if (linenoiseEditDelete(l) == -1) return LR_ERROR;
-        break;
-    case RCS_HOME:
-        l->pos = 0;
-        if (refreshLine(l) == -1) return LR_ERROR;
-        break;
-    case RCS_END:
-        l->pos = l->len;
-        if (refreshLine(l) == -1) return LR_ERROR;
         break;
     default:
         if (linenoiseEditInsert(l,c) == -1) return LR_ERROR;
         break;
     case CTRL('U'):     /* Ctrl+u, delete the whole line. */
-        l->buf[0] = '\0';
-        l->pos = l->len = 0;
+        clearString(&l->line);
+        l->pos = 0;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     case CTRL('K'):     /* Ctrl+k, delete from current to end of line. */
-        l->buf[l->pos] = '\0';
-        l->len = l->pos;
+        l->line.charlen = l->pos;
+        l->line.bytelen = l->line.charindex[l->pos];
+        l->line.buf[l->line.bytelen] = '\0';
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     case CTRL('A'):     /* Ctrl+a, go to the start of the line */
+    case RCS_HOME:
         l->pos = 0;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     case CTRL('E'):     /* ctrl+e, go to the end of the line */
-        l->pos = l->len;
+    case RCS_END:
+        l->pos = l->line.charlen;
         if (refreshLine(l) == -1) return LR_ERROR;
         break;
     case CTRL('L'):     /* ctrl+l,     clear screen */
@@ -1442,9 +1821,9 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
 /* Handle TAB completion.
  * Returns one of the LinenoiseResult values to indicate the completion result. */
 static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
-    int c = readChar(l);
+    const linenoiseChar *c = readChar(l);
 
-    switch (c) {
+    switch (c->unicodeChar) {
     case CTRL('C'):
     case RCS_CANCELLED:
     case RCS_CLOSED:
@@ -1463,7 +1842,7 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
                 wasInitialized = false;
                 freeCompletions(l);
 
-                completionCallback(l->buf, l->pos, &l->comp);
+                completionCallback(l->line.buf, l->pos, &l->comp);
 
                 // completion might call linenoiseCustomOutput()
                 if (enableRawMode(l->fd) == -1) return LR_ERROR;
@@ -1484,10 +1863,8 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
 
 /* Free a list of completion option populated by linenoiseAddCompletion(). */
 static int freeHistorySearch(struct linenoiseState *l) {
-    if (l->hist_search.hist_search_buf != NULL) {
-        free(l->hist_search.hist_search_buf);
-        l->hist_search.hist_search_buf = NULL;
-        l->hist_search.hist_search_len = l->hist_search.hist_search_buflen = 0;
+    if (l->hist_search.text.buf != NULL) {
+        freeString(&l->hist_search.text);
         l->hist_search.current_index = 0;
         l->hist_search.found = false;
         if (setTempPrompt(l, NULL) == -1) return -1;
@@ -1498,13 +1875,14 @@ static int freeHistorySearch(struct linenoiseState *l) {
 /* Sets the temporary history searching prompt. */
 int setSearchPrompt(struct linenoiseState *l)
 {
-    size_t promptlen = l->hist_search.hist_search_len + 23;
+    size_t promptlen = l->hist_search.text.bytelen + 23;
     char* newprompt = calloc(1, promptlen);
     if (newprompt == NULL) {
         errno = ENOMEM;
         return -1;
     }
-    snprintf(newprompt, promptlen, "(reverse-i-search`%s'): ", l->hist_search.hist_search_buf);
+    if (l->hist_search.text.buf != NULL)
+        snprintf(newprompt, promptlen, "(reverse-i-search`%s'): ", l->hist_search.text.buf);
     newprompt[promptlen-1] = '\0';
     int result = setTempPrompt(l, newprompt);
     free(newprompt);
@@ -1514,27 +1892,55 @@ int setSearchPrompt(struct linenoiseState *l)
 /* Find entry in history matching the current sequence */
 int linenoiseHistoryFindEntry(struct linenoiseState *l)
 {
-    if (l->hist_search.hist_search_len > 0) {
+    if (l->hist_search.text.bytelen > 0) {
+        linenoiseString parsed = {NULL, NULL, 0, 0, 0};
         int new_index = l->hist_search.current_index;
         while (new_index < history_len) {
             char *historyStr = history[history_len - 1 - new_index];
-            char *found = strstr(historyStr, l->hist_search.hist_search_buf);
+            char *found = strstr(historyStr, l->hist_search.text.buf);
             char *last_found = NULL;
+            if (found != NULL) {
+                int historyStrLen = strlen(historyStr);
+                if (parseLine(historyStr, historyStrLen, &parsed) == -1) return -1;
+                found = strstr(parsed.buf, l->hist_search.text.buf);
+            }
             while (found != NULL) {
-                last_found = found;
-                found = strstr(last_found + 1, l->hist_search.hist_search_buf);
+                size_t first = found-parsed.buf;
+                size_t last = first + l->hist_search.text.bytelen;
+                if (isAtCharBoundary(first, &parsed)
+                        && isAtCharBoundary(last, &parsed)) {
+                    last_found = found;
+                }
+                found = strstr(found + 1, l->hist_search.text.buf);
             }
             if (last_found != NULL) {
-                if (setSearchPrompt(l) == -1) return -1;
+                if (setSearchPrompt(l) == -1) {
+                    freeString(&parsed);
+                    return -1;
+                }
                 l->hist_search.found = true;
-                if (linenoiseShowHistoryEntry(l, new_index,
-                        last_found - historyStr
-                                + l->hist_search.hist_search_len) == -1) return -1;
+
+                if (ensureBufLen(&l->line, parsed.bytelen+1) == -1) {
+                    freeString(&parsed);
+                    return -1;
+                }
+                memcpy(l->line.buf, parsed.buf, (parsed.bytelen+1)*sizeof(l->line.buf[0]));
+                memcpy(l->line.charindex, parsed.charindex, (parsed.charlen+1)*sizeof(l->line.charindex[0]));
+                l->line.bytelen = parsed.bytelen;
+                l->line.charlen = parsed.charlen;
+                l->pos = MIN(l->line.charlen,
+                             findNearestCharIndex(last_found - parsed.buf + l->hist_search.text.bytelen,
+                                                  &l->line));
+                freeString(&parsed);
+
+                l->history_index = new_index;
+                if (refreshLine(l) == -1) return -1;
                 l->hist_search.current_index = l->history_index;
                 return 0;
             }
             new_index++;
         }
+        freeString(&parsed);
         linenoiseBeep();
     }
     l->hist_search.found = false;
@@ -1545,9 +1951,9 @@ int linenoiseHistoryFindEntry(struct linenoiseState *l)
  * Returns one of the LinenoiseResult values to indicate the searching result. */
 static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
 {
-    int c = readChar(l);
+    const linenoiseChar *c = readChar(l);
 
-    switch (c) {
+    switch (c->unicodeChar) {
     case CTRL('C'):
     case RCS_CANCELLED:
         if (cancelInternal(l) == -1) return LR_ERROR;
@@ -1564,10 +1970,9 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
         return LR_ERROR;
     case CERASE:   /* backspace */
     case CTRL('H'):     /* ctrl-h */
-        if (l->hist_search.hist_search_len > 0) {
-            l->hist_search.hist_search_len--;
-            l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
-            if (l->hist_search.hist_search_len == 0 && l->hist_search.found) {
+        if (l->hist_search.text.charlen > 0) {
+            (void) deleteChar(&l->hist_search.text, l->hist_search.text.charlen-1);
+            if (l->hist_search.text.charlen == 0 && l->hist_search.found) {
                 if (setSearchPrompt(l) == -1) return LR_ERROR;
                 if (refreshLine(l) == -1) return LR_ERROR;
             } else {
@@ -1576,18 +1981,9 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
         }
         return LR_CONTINUE;
     default:
-        if (c >= 32) {
-            size_t newlen = l->hist_search.hist_search_len + 1;
-            if (newlen >= l->hist_search.hist_search_buflen) {
-                size_t newsize = l->hist_search.hist_search_buflen + LINENOISE_LINE_INIT_MAX_AND_GROW;
-                char *newbuf = realloc(l->hist_search.hist_search_buf, newsize);
-                if (newbuf == NULL) {
-                    errno = ENOMEM;
-                    return LR_ERROR;
-                }
-            }
-            l->hist_search.hist_search_buf[l->hist_search.hist_search_len++] = c;
-            l->hist_search.hist_search_buf[l->hist_search.hist_search_len] = '\0';
+        if (c->unicodeChar >= 32) {
+            if (insertChar(&l->hist_search.text, c, l->hist_search.text.charlen) == -1) return LR_ERROR;
+
             // Find history entry
             bool wasFound = l->hist_search.found;
             if (linenoiseHistoryFindEntry(l) == -1) return LR_ERROR;
@@ -1602,7 +1998,7 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
             return LR_CONTINUE;
         }
     case CTRL('R'):
-        if (l->hist_search.hist_search_buf == NULL) {
+        if (l->hist_search.text.buf == NULL) {
             // First search
             if (history_len == 1) {
                 linenoiseBeep();
@@ -1610,17 +2006,12 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
                 return LR_CONTINUE;
             }
             l->hist_search.current_index = l->history_index;
-            l->hist_search.hist_search_buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
-            if (l->hist_search.hist_search_buf == NULL) {
-                errno = ENOMEM;
+            if (ensureBufLen(&l->hist_search.text, LINENOISE_LINE_INIT_MAX_AND_GROW) == -1)
                 return LR_ERROR;
-            }
-            l->hist_search.hist_search_buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
-            l->hist_search.hist_search_len = 0;
             if (setSearchPrompt(l) == -1) return LR_ERROR;
             if (refreshLine(l) == -1) return LR_ERROR;
             return LR_CONTINUE;
-        } else if (l->hist_search.hist_search_len > 0) {
+        } else if (l->hist_search.text.charlen > 0) {
             // Find another history entry
             if (l->hist_search.found) {
                 l->hist_search.current_index++;
@@ -1642,7 +2033,7 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
 static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     if (l->is_closed) {
         return LR_CLOSED;
-    } else if (l->buflen == 0) {
+    } else if (l->line.buflen == 0) {
         errno = EINVAL;
         return LR_ERROR;
     }
@@ -1759,7 +2150,7 @@ char *linenoise() {
             return NULL;
         }
 
-        printf("%s",state.prompt);
+        printf("%s",state.prompt.buf);
         fflush(stdout);
         if (fgets(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) {
             if (state.is_cancelled) {
@@ -1791,7 +2182,7 @@ char *linenoise() {
                 disableRawMode(state.fd);
             errno = EINTR;
             return NULL;
-        } else if (result == LR_CLOSED && state.len == 0) {
+        } else if (result == LR_CLOSED && state.line.bytelen == 0) {
             resetOnNewline(&state);
             printf("\r\n");
             errno = 0;
@@ -1810,10 +2201,10 @@ char *linenoise() {
         }
 
         // Have some text
-        char* copy = strndup(state.buf, state.len);
+        char* copy = strndup(state.line.buf, state.line.bytelen);
 
-        state.pos = state.len = 0;
-        state.buf[0] = '\0';
+        clearString(&state.line);
+        state.pos = 0;
 
         if (copy == NULL) errno = ENOMEM;
         else errno = saved_errno;
@@ -1862,13 +2253,8 @@ static int initialize(struct linenoiseState *l)
 
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
-    l->buf = calloc(1, LINENOISE_LINE_INIT_MAX_AND_GROW);
-    if (l->buf == NULL) {
-        errno = ENOMEM;
-        return -1;
-    }
+    if (ensureBufLen(&l->line, LINENOISE_LINE_INIT_MAX_AND_GROW) == -1) return -1;
 
-    l->buflen = LINENOISE_LINE_INIT_MAX_AND_GROW;
     l->cols = getColumns();
 
     return 0;
@@ -1878,8 +2264,9 @@ static int initialize(struct linenoiseState *l)
 static void freeState()
 {
     timer_delete(state.ansi.ansi_timer);
-    free(state.prompt);
-    free(state.buf);
+    freeString(&state.prompt);
+    freeString(&state.tempprompt);
+    freeString(&state.line);
     freeHistorySearch(&state);
     freeCompletions(&state);
 }
@@ -1919,7 +2306,7 @@ int linenoiseHistoryAdd(const char *line) {
     if (!linecopy) return 0;
     if (history_len == history_max_len) {
         free(history[0]);
-        memmove(history,history+1,sizeof(char*)*(history_max_len-1));
+        memmove(history,history+1,sizeof(history[0])*(history_max_len-1));
         history_len--;
     }
     history[history_len] = linecopy;
@@ -1948,8 +2335,8 @@ int linenoiseHistorySetMaxLen(int len) {
             for (j = 0; j < tocopy-len; j++) free(history[j]);
             tocopy = len;
         }
-        memset(new,0,sizeof(char*)*len);
-        memcpy(new,history+(history_len-tocopy), sizeof(char*)*tocopy);
+        memset(new,0,sizeof(history[0])*len);
+        memcpy(new,history+(history_len-tocopy), sizeof(history[0])*tocopy);
         free(history);
         history = new;
     }

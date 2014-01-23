@@ -50,10 +50,11 @@ typedef struct linenoiseCompletions linenoiseCompletions;
  * Completion callback with text and cursor position.
  *
  * @param text text to be completed
- * @param cursor cursor position
+ * @param cursor cursor position (byte offset)
  * @param completions suggested completions structure to be filled
  */
-typedef void(linenoiseCompletionCallback)(const char *text, size_t cursor, linenoiseCompletions *completions);
+typedef void (linenoiseCompletionCallback)(const char *text, size_t cursor,
+    linenoiseCompletions *completions);
 
 /**
  * Sets completion callback.
@@ -67,7 +68,7 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *callback);
  * @param completions suggested completions structure being filled
  * @param suggestion suggestion to be added (completed word)
  * @param completed_text completed text to be used (not only completed word)
- * @param cursor cursor position to be used, or SIZE_MAX to place the cursor at the end
+ * @param cursor cursor position to be used (byte offset), or SIZE_MAX to place the cursor at the end
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
 int linenoiseAddCompletion(linenoiseCompletions *completions, const char *suggestion, const char *completed_text, size_t cursor);
