@@ -312,7 +312,9 @@ static int freeHistorySearch(struct linenoiseState *l);
 
 /* ======================= Line and buffer manipulation ===================== */
 
-inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unicode_t cs)
+/* Fill character representation 'tempChar' of unicode char 'cs'.
+ * Returns supplied 'tempChar'. */
+static inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unicode_t cs)
 {
     int saved_errno = errno;
     tempChar->unicodeChar = cs;
@@ -331,7 +333,8 @@ inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unico
     return tempChar;
 }
 
-inline size_t getCharIndexAt(struct linenoiseString *s, size_t pos)
+/* Converts character position to byte index. */
+static inline size_t getCharIndexAt(struct linenoiseString *s, size_t pos)
 {
     if (pos >= s->charlen) {
         return s->charindex[s->charlen];
@@ -340,7 +343,8 @@ inline size_t getCharIndexAt(struct linenoiseString *s, size_t pos)
     }
 }
 
-inline char_t *getCharAt(struct linenoiseString *s, size_t pos)
+/* Returns pointer to character at a character position. */
+static inline char_t *getCharAt(struct linenoiseString *s, size_t pos)
 {
     if (pos >= s->charlen) {
         return s->buf + s->charindex[s->charlen];
@@ -349,7 +353,8 @@ inline char_t *getCharAt(struct linenoiseString *s, size_t pos)
     }
 }
 
-inline unicode_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
+/* Returns unicode character at a supplied position. */
+static inline unicode_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
 {
     wchar_t c = 0;
     int saved_errno = errno;
@@ -360,6 +365,7 @@ inline unicode_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
     return c;
 }
 
+/* Returns multi-byte character size at a supplied position. */
 inline size_t getCharSizeAt(struct linenoiseString *s, size_t pos)
 {
     if (pos >= s->charlen) {
@@ -369,7 +375,8 @@ inline size_t getCharSizeAt(struct linenoiseString *s, size_t pos)
     }
 }
 
-inline bool isAtCharBoundary(size_t pos, struct linenoiseString *s)
+/* Check if the byte position is at character boundary. */
+static inline bool isAtCharBoundary(size_t pos, struct linenoiseString *s)
 {
     int i;
     for (i = 0; i <= s->charlen; i++) {
@@ -380,7 +387,8 @@ inline bool isAtCharBoundary(size_t pos, struct linenoiseString *s)
     return false;
 }
 
-inline size_t findNearestCharIndex(size_t pos, struct linenoiseString *s)
+/* Find nearest character index from byte position. */
+static inline size_t findNearestCharIndex(size_t pos, struct linenoiseString *s)
 {
     int i;
     for (i = 0; i <= s->charlen; i++) {
@@ -391,14 +399,16 @@ inline size_t findNearestCharIndex(size_t pos, struct linenoiseString *s)
     return s->charlen;
 }
 
-inline void clearString(struct linenoiseString *s)
+/* Clear linenoiseString (set width to 0). */
+static inline void clearString(struct linenoiseString *s)
 {
     s->bytelen = s->charlen = 0;
     if (s->buf != NULL)
         s->buf[0] = '\0';
 }
 
-inline void freeString(struct linenoiseString *s)
+/* Free lineoiseString. */
+static inline void freeString(struct linenoiseString *s)
 {
     free(s->buf);
     free(s->charindex);
@@ -562,6 +572,7 @@ static int completitionCompare(const void *first, const void *second)
     return (strcoll(firstcomp->suggestion, secondcomp->suggestion));
 }
 
+/* Parse line into linenoiseString. */
 int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 {
     if (ensureBufLen(dest, srclen+1) == -1) return -1;
@@ -599,6 +610,7 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
     return 0;
 }
 
+/* Replace line with unparsed text (which is parsed). */
 static int replaceLine(struct linenoiseState *l, char_t *text, int len)
 {
     if (ensureBufLen(&l->line, len+1) == -1) return -1;
@@ -1028,7 +1040,7 @@ static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
     return 0;
 }
 
-/* Decodes ANSI escape sequence.
+/* Decode ANSI escape sequence.
  * Returns ReadCharSpecials or RCS_NONE in case unknown sequence is read. */
 const struct linenoiseChar *ansiDecode(struct linenoiseAnsi *la)
 {
@@ -1162,6 +1174,7 @@ bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
     }
 }
 
+/* Push back string of 'c' characters to be read. */
 bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int count)
 {
     int i;
@@ -1183,6 +1196,7 @@ bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int 
     return allAdded;
 }
 
+/* Push back all characters from 'c' separately to be read. */
 bool pushBackRawChars(struct linenoiseState *l, const struct linenoiseChar *c)
 {
     if (c->rawCharsLen > 0) {
@@ -1419,6 +1433,7 @@ const linenoiseChar *readChar(struct linenoiseState *l)
     return c;
 }
 
+/* Insert the character 'c' at position. */
 int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t charpos) {
     if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
         size_t pos = charpos <= s->charlen ? charpos : s->charlen;
@@ -1471,6 +1486,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const struct linenoiseChar *c)
     }
 }
 
+/* Replace character at position */
 int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c) {
     if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
         if (l->line.charlen == l->pos) {
@@ -1586,6 +1602,7 @@ int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     }
 }
 
+/* Delete character at position. */
 int deleteChar(struct linenoiseString *s, size_t pos)
 {
     if (s->charlen > 0 && pos < s->charlen) {
@@ -1645,6 +1662,7 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     return refreshLine(l);
 }
 
+/* Swap single character with previous one. */
 int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
     if (l->pos >= 2 && l->pos == l->line.charlen)
         l->pos--;
@@ -1692,8 +1710,10 @@ int setClosed(struct linenoiseState *l)
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
  *
- * The resulting string is put into 'buf' when the user type enter, or
- * when ctrl+d is typed.
+ * The resulting string is updated in 'line.buf' and editing ends, when
+ * the user types enter, or when ctrl+d is typed on an empty line. Line
+ * editing can be cancelled by pressing ctrl+c, in which case LR_CANCELLED
+ * is returned.
  *
  * The function returns one of the LinenoiseResult values to indicate the
  * line editing result. */
@@ -2106,6 +2126,7 @@ static int ensureInitialized(struct linenoiseState *l)
     return 0;
 }
 
+/* Set the prompt. */
 int linenoiseSetPrompt(const char_t *prompt)
 {
     if (ensureInitialized(&state) == -1) return -1;
@@ -2136,6 +2157,7 @@ int linenoiseHasPendingChar()
     return state.read_back_char_len != 0 || state.is_cancelled;
 }
 
+/* Reset from raw mode and go to new line if necessary. */
 int linenoiseCleanup()
 {
     if (ensureInitialized(&state) == -1) return -1;
