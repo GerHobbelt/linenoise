@@ -1165,17 +1165,19 @@ bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
 bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int count)
 {
     int i;
+    const struct linenoiseChar *pc = c;
     bool allAdded = false;
     if (count > 0) {
         allAdded = true;
         for (i = 0; i < count; i++) {
-            if (c->unicodeChar != RCS_NONE && l->read_back_char_len < READ_BACK_MAX_LEN) {
-                l->read_back_char[l->read_back_char_len++] = *c;
+            if (pc->unicodeChar != RCS_NONE && l->read_back_char_len < READ_BACK_MAX_LEN) {
+                l->read_back_char[l->read_back_char_len++] = *pc;
             } else {
                 allAdded = false;
                 if (l->read_back_char_len == READ_BACK_MAX_LEN)
                     break;
             }
+            ++pc;
         }
     }
     return allAdded;
