@@ -115,6 +115,15 @@
 #include <wchar.h>
 #include "linenoise.h"
 
+#undef uchar_t
+#undef char_t
+#undef charpos_t
+#undef unicode_t
+#define uchar_t unsigned char
+#define char_t char
+#define charpos_t size_t
+#define unicode_t int32_t
+
 #define RETRY(expression) \
 	( { int result = (expression); while (result == -1 && errno == EINTR ) result = (expression); result; } )
 
@@ -129,9 +138,9 @@
 #define CESC CTRL('[')
 
 typedef struct linenoiseSingleCompletion {
-    char *suggestion;   /* Suggestion to display. */
-    char *text;         /* Fully completed text. */
-    size_t pos;         /* Cursor position. */
+    char_t *suggestion; /* Suggestion to display. */
+    char_t *text;       /* Fully completed text. */
+    charpos_t pos;      /* Cursor position. */
 } linenoiseSingleCompletion;
 
 struct linenoiseCompletions {
@@ -158,7 +167,7 @@ static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
-static char **history = NULL;
+static char_t **history = NULL;
 
 enum LinenoiseState {
     LS_NEW_LINE,        /* Processing new line. */
@@ -206,16 +215,16 @@ enum LinenoiseResult {
 };
 
 typedef struct linenoiseString {
-    char *buf;          /* String buffer. */
-    size_t *charindex;  /* Starting position of characters. */
-    size_t buflen;      /* String buffer size. */
-    size_t bytelen;     /* String length (in bytes). */
-    size_t charlen;     /* String length (in characters). */
+    char_t *buf;            /* String buffer. */
+    charpos_t *charindex;   /* Starting position of characters. */
+    size_t buflen;          /* String buffer size. */
+    size_t bytelen;         /* String length (in bytes). */
+    size_t charlen;         /* String length (in characters). */
 } linenoiseString;
 
 typedef struct linenoiseChar {
-    int32_t unicodeChar;
-    unsigned char rawChars[MAX_RAW_CHARS+1];
+    unicode_t unicodeChar;
+    uchar_t rawChars[MAX_RAW_CHARS+1];
     size_t rawCharsLen;
 } linenoiseChar;
 
@@ -232,9 +241,9 @@ typedef struct linenoiseAnsi {
     int ansi_timer_overrun_count;   /* Overrun count of timer. */
     enum AnsiEscapeState ansi_state;    /* ANSI sequence reading state */
     struct linenoiseChar ansi_escape[ANSI_ESCAPE_MAX_LEN + 1];  /* RAW read ANSI escape sequence */
-    char ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];    /* Intermediate sequence. */
-    char ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];   /* Parameter sequence. */
-    char ansi_final;    /* Final character of sequence. */
+    char_t ansi_intermediate[ANSI_ESCAPE_MAX_LEN + 1];    /* Intermediate sequence. */
+    char_t ansi_parameter[ANSI_ESCAPE_MAX_LEN + 1];   /* Parameter sequence. */
+    char_t ansi_final;    /* Final character of sequence. */
     enum AnsiSequenceMeaning ansi_sequence_meaning;   /* Read sequence meaning. */
     int ansi_escape_len;                    /* Current length of sequence */
     int ansi_intermediate_len;              /* Current length of intermediate block */
@@ -303,14 +312,14 @@ static int freeHistorySearch(struct linenoiseState *l);
 
 /* ======================= Line and buffer manipulation ===================== */
 
-inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, int32_t cs)
+inline const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unicode_t cs)
 {
     int saved_errno = errno;
     tempChar->unicodeChar = cs;
     if (cs > 0) {
         mbstate_t state;
         memset(&state, 0, sizeof(state));
-        tempChar->rawCharsLen = wcrtomb((char*)tempChar->rawChars, cs, &state);
+        tempChar->rawCharsLen = wcrtomb((char_t*)tempChar->rawChars, cs, &state);
         if (tempChar->rawCharsLen == (size_t)-1 || tempChar->rawCharsLen == 0) {
             tempChar->unicodeChar = RCS_NONE;
             tempChar->rawCharsLen = 0;
@@ -331,7 +340,7 @@ inline size_t getCharIndexAt(struct linenoiseString *s, size_t pos)
     }
 }
 
-inline char *getCharAt(struct linenoiseString *s, size_t pos)
+inline char_t *getCharAt(struct linenoiseString *s, size_t pos)
 {
     if (pos >= s->charlen) {
         return s->buf + s->charindex[s->charlen];
@@ -340,7 +349,7 @@ inline char *getCharAt(struct linenoiseString *s, size_t pos)
     }
 }
 
-inline int32_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
+inline unicode_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
 {
     wchar_t c = 0;
     int saved_errno = errno;
@@ -553,13 +562,13 @@ static int completitionCompare(const void *first, const void *second)
     return (strcoll(firstcomp->suggestion, secondcomp->suggestion));
 }
 
-int parseLine(const char *src, size_t srclen, struct linenoiseString *dest)
+int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 {
     if (ensureBufLen(dest, srclen+1) == -1) return -1;
     int saved_errno = errno;
-    const char *charstart = src;
-    const char *charend = src;
-    const char *srcend = src + srclen;
+    const char_t *charstart = src;
+    const char_t *charend = src;
+    const char_t *srcend = src + srclen;
     mbstate_t state;
     memset(&state, 0, sizeof(state));
 
@@ -574,7 +583,7 @@ int parseLine(const char *src, size_t srclen, struct linenoiseString *dest)
             continue;
         } else if (found != (size_t)-2) {
             size_t newCharSize = (charend - charstart) + 1;
-            memcpy(dest->buf+newbytelen, charstart, newCharSize*sizeof(dest->buf[0]));
+            memcpy(dest->buf+newbytelen, charstart, newCharSize*sizeof(char_t));
             newcharlen++;
             newbytelen += newCharSize;
             dest->charindex[newcharlen] = newbytelen;
@@ -590,7 +599,7 @@ int parseLine(const char *src, size_t srclen, struct linenoiseString *dest)
     return 0;
 }
 
-static int replaceLine(struct linenoiseState *l, char *text, int len)
+static int replaceLine(struct linenoiseState *l, char_t *text, int len)
 {
     if (ensureBufLen(&l->line, len+1) == -1) return -1;
     parseLine(text, len, &l->line);
@@ -653,17 +662,17 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
-int linenoiseAddCompletion(linenoiseCompletions *lc, const char *suggestion, const char *completed_text, size_t pos) {
+int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, const char_t *completed_text, charpos_t pos) {
     if (suggestion == NULL || completed_text == NULL || *suggestion == '\0' || *completed_text == '\0') {
         errno = EINVAL;
         return -1;
     }
     int result = 0;
     size_t len = strlen(suggestion);
-    char *copy_suggestion = malloc(len+1);
-    char *copy_text = strdup(completed_text);
+    char_t *copy_suggestion = malloc((len+1)*sizeof(char_t));
+    char_t *copy_text = strdup(completed_text);
     if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
-    memcpy(copy_suggestion,suggestion,(len+1)*sizeof(*suggestion));
+    memcpy(copy_suggestion,suggestion,(len+1)*sizeof(char_t));
     if (lc->len == 0 || lc->cvec != NULL) {
         linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
         if (newcvec == NULL) goto error_cleanup;
@@ -706,7 +715,7 @@ linenoiseString *getPrompt(struct linenoiseState *l)
 }
 
 /* Set the main prompt. */
-int setPrompt(struct linenoiseState *l, const char *prompt)
+int setPrompt(struct linenoiseState *l, const char_t *prompt)
 {
     if (l->is_supported) {
         size_t promptLen = prompt != NULL ? strlen(prompt) : 0;
@@ -785,7 +794,7 @@ static int refreshSingleLine(struct linenoiseState *l) {
     while (prompt->charlen+charlen > l->cols) {
         charlen--;
     }
-    char *buf = getCharAt(&l->line, charpos);
+    char_t *buf = getCharAt(&l->line, charpos);
     size_t bytelen = getCharAt(&l->line, charpos+charlen) - buf;
 
     /* Cursor to left edge */
@@ -996,10 +1005,10 @@ static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
         return 0;
 
     if (s->buflen < newlen) {
-        char *newbuf = s->buf ? realloc(s->buf, newlen*sizeof(s->buf[0])) :
-                                malloc(newlen*sizeof(s->buf[0]));
-        size_t *newcharindex = s->charindex ? realloc(s->charindex, newlen*sizeof(s->charindex[0])) :
-                                              malloc(newlen*sizeof(s->charindex[0]));
+        char_t *newbuf = s->buf ? realloc(s->buf, newlen*sizeof(char_t)) :
+                                  malloc(newlen*sizeof(char_t));
+        charpos_t *newcharindex = s->charindex ? realloc(s->charindex, newlen*sizeof(charpos_t)) :
+                                                 malloc(newlen*sizeof(charpos_t));
         s->buf = newbuf != NULL ? newbuf : s->buf;
         s->charindex = newcharindex != NULL ? newcharindex : s->charindex;
         if (newbuf == NULL || newcharindex == NULL) {
@@ -1088,17 +1097,17 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
     } else {
         if (la->ansi_state == AES_INTERMEDIATE && c->unicodeChar >= 0x20 && c->unicodeChar <= 0x2F) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char_t)c->unicodeChar;
         } else if (la->ansi_state == AES_CSI_INTERMEDIATE && c->unicodeChar >= 0x20 && c->unicodeChar < 0x2F) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char_t)c->unicodeChar;
         } else if (la->ansi_state == AES_CSI_PARAMETER && c->unicodeChar >= 0x20 && c->unicodeChar < 0x2F) {
             la->ansi_state = AES_CSI_INTERMEDIATE;
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_intermediate[la->ansi_intermediate_len++] = (char)c->unicodeChar;
+            la->ansi_intermediate[la->ansi_intermediate_len++] = (char_t)c->unicodeChar;
         } else if (la->ansi_state == AES_CSI_PARAMETER && c->unicodeChar >= 0x30 && c->unicodeChar < 0x3F) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_parameter[la->ansi_parameter_len++] = (char)c->unicodeChar;
+            la->ansi_parameter[la->ansi_parameter_len++] = (char_t)c->unicodeChar;
         } else if (la->ansi_state == AES_INTERMEDIATE && c->unicodeChar >= 0x30 && c->unicodeChar < 0x7F ) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
             if (la->ansi_escape_len == 2 && c->unicodeChar == 0x5B) {
@@ -1111,16 +1120,16 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
                 la->ansi_state = AES_SS_CHARACTER;
                 la->ansi_sequence_meaning = ASM_G3;
             } else {
-                la->ansi_final = (char)c->unicodeChar;
+                la->ansi_final = (char_t)c->unicodeChar;
                 la->ansi_state = AES_FINAL;
             }
         } else if ((la->ansi_state == AES_CSI_INTERMEDIATE || la->ansi_state == AES_CSI_PARAMETER) && c->unicodeChar >= 0x40 && c->unicodeChar < 0x7F) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_final = (char)c->unicodeChar;
+            la->ansi_final = (char_t)c->unicodeChar;
             la->ansi_state = AES_FINAL;
         } else if (la->ansi_state == AES_SS_CHARACTER) {
             la->ansi_escape[la->ansi_escape_len++] = *c;
-            la->ansi_final = (char)c->unicodeChar;
+            la->ansi_final = (char_t)c->unicodeChar;
             la->ansi_state = AES_FINAL;
         } else {
             // Invalid character
@@ -1144,7 +1153,7 @@ bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
             l->read_back_char_len--;
         if (l->read_back_char_len > 0)
             memmove(l->read_back_char + 1, l->read_back_char,
-                    l->read_back_char_len * sizeof(l->read_back_char[0]));
+                    l->read_back_char_len * sizeof(linenoiseChar));
         l->read_back_char[0] = *c;
         l->read_back_char_len++;
         return true;
@@ -1197,13 +1206,13 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
     const linenoiseChar *result = NULL;
     int nread = -1;
     int selectresult = 1;
-    unsigned char c;
+    uchar_t c;
 
     if (l->rawChar.is_emited) {
         l->rawChar.currentChar.unicodeChar = RCS_NONE;
         l->rawChar.currentChar.rawCharsLen = 0;
         l->rawChar.is_emited = false;
-        memset(&l->rawChar.readingState, 0, sizeof(l->rawChar.readingState));
+        memset(&l->rawChar.readingState, 0, sizeof(mbstate_t));
     } else if (l->rawChar.currentChar.unicodeChar != RCS_NONE) {
         l->rawChar.is_emited = true;
         return &l->rawChar.currentChar;
@@ -1232,7 +1241,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
         l->rawChar.currentChar.rawCharsLen++;
         l->rawChar.currentChar.rawChars[insertIndex] = c;
         size_t validChars = mbrlen(
-                (char*)l->rawChar.currentChar.rawChars + insertIndex, 1,
+                (char_t*)l->rawChar.currentChar.rawChars + insertIndex, 1,
                 &l->rawChar.readingState);
         errno = saved_errno;
         switch (validChars)
@@ -1247,7 +1256,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
             {
                 int saved_errno = errno;
                 wchar_t character = 0;
-                const char *rawChars = (char*)l->rawChar.currentChar.rawChars;
+                const char_t *rawChars = (char_t*)l->rawChar.currentChar.rawChars;
                 mbstate_t state;
                 memset(&state, 0, sizeof(state));
                 l->rawChar.currentChar.rawChars[l->rawChar.currentChar.rawCharsLen] =
@@ -1317,7 +1326,7 @@ const linenoiseChar *readChar(struct linenoiseState *l)
             l->read_back_char_len--;
             if (l->read_back_char_len > 0) {
                 memmove(l->read_back_char, l->read_back_char + 1,
-                        l->read_back_char_len * sizeof(l->read_back_char[0]));
+                        l->read_back_char_len * sizeof(linenoiseChar));
             }
             // Break now - do not allow further processing (prevent looping over
             // the same wrong escape sequences)
@@ -1414,16 +1423,16 @@ int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t 
         size_t newLen = s->bytelen + c->rawCharsLen;
         if (ensureBufLen(s, newLen + 1) == -1) return -1;
         if (s->charlen == pos) {
-            memcpy(s->buf+s->bytelen, c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+            memcpy(s->buf+s->bytelen, c->rawChars, c->rawCharsLen*sizeof(char_t));
             s->charlen++;
             s->bytelen += c->rawCharsLen;
             s->buf[s->bytelen] = '\0';
             s->charindex[s->charlen] = s->bytelen;
         } else {
             int i;
-            memmove(getCharAt(s, pos)+c->rawCharsLen, getCharAt(s, pos), (s->bytelen-s->charindex[pos]+1)*sizeof(s->buf[0]));
-            memmove(s->charindex+pos+1, s->charindex+pos, (s->charlen-pos+1)*sizeof(s->charindex[0]));
-            memcpy(getCharAt(s, pos), c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+            memmove(getCharAt(s, pos)+c->rawCharsLen, getCharAt(s, pos), (s->bytelen-s->charindex[pos]+1)*sizeof(char_t));
+            memmove(s->charindex+pos+1, s->charindex+pos, (s->charlen-pos+1)*sizeof(charpos_t));
+            memcpy(getCharAt(s, pos), c->rawChars, c->rawCharsLen*sizeof(char_t));
             s->charlen++;
             s->bytelen += c->rawCharsLen;
             for (i = pos; i <= s->charlen; ++i)
@@ -1473,8 +1482,8 @@ int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c
                 if (ensureBufLen(&l->line, newLen + 1) == -1) return -1;
             }
             memmove(getCharAt(&l->line, l->pos)+c->rawCharsLen, getCharAt(&l->line, l->pos)+curCharLen,
-                    (l->line.charindex[l->line.charlen] - l->line.charindex[l->pos + 1])*sizeof(l->line.buf[0]));
-            memcpy(getCharAt(&l->line, l->pos), c->rawChars, c->rawCharsLen*sizeof(c->rawChars[0]));
+                    (l->line.charindex[l->line.charlen] - l->line.charindex[l->pos + 1])*sizeof(char_t));
+            memcpy(getCharAt(&l->line, l->pos), c->rawChars, c->rawCharsLen*sizeof(char_t));
             l->pos++;
             l->line.bytelen += diff;
             for (i = l->pos; i <= l->line.charlen; ++i)
@@ -1578,9 +1587,9 @@ int deleteChar(struct linenoiseString *s, size_t pos)
         int i;
         size_t charSize = getCharSizeAt(s, pos);
         memmove(getCharAt(s, pos), getCharAt(s, pos + 1),
-                (s->bytelen - s->charindex[pos + 1] + 1) * sizeof(s->buf[0]));
+                (s->bytelen - s->charindex[pos + 1] + 1) * sizeof(char_t));
         memmove(s->charindex + pos, s->charindex + pos + 1,
-                (s->charlen-(pos+1)+1) * sizeof(s->charindex[0]));
+                (s->charlen-(pos+1)+1) * sizeof(charpos_t));
         s->charlen--;
         s->bytelen -= charSize;
         for (i = pos; i <= s->charlen; i++)
@@ -1621,9 +1630,9 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     chardiff = old_pos - l->pos;
     bytediff = l->line.charindex[old_pos] - l->line.charindex[l->pos];
     memmove(getCharAt(&l->line, l->pos), getCharAt(&l->line, old_pos),
-            (l->line.bytelen - l->line.charindex[old_pos] + 1)*sizeof(l->line.buf[0]));
+            (l->line.bytelen - l->line.charindex[old_pos] + 1)*sizeof(char_t));
     memmove(l->line.charindex+l->pos, l->line.charindex+old_pos,
-            (l->line.charlen-old_pos+1)*sizeof(l->line.charindex[0]));
+            (l->line.charlen-old_pos+1)*sizeof(charpos_t));
     l->line.charlen -= chardiff;
     l->line.bytelen -= bytediff;
     for (i = l->pos; i <= l->line.charlen; i++)
@@ -1635,12 +1644,12 @@ int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
     if (l->pos >= 2 && l->pos == l->line.charlen)
         l->pos--;
     if (l->pos > 0 && l->pos < l->line.charlen) {
-        char prev[MAX_RAW_CHARS];
+        char_t prev[MAX_RAW_CHARS];
         size_t prevSize = getCharSizeAt(&l->line, l->pos-1);
         size_t curSize = getCharSizeAt(&l->line, l->pos);
-        memcpy(prev, getCharAt(&l->line, l->pos-1), prevSize*sizeof(l->line.buf[0]));
-        memmove(getCharAt(&l->line, l->pos-1), getCharAt(&l->line, l->pos), curSize*sizeof(l->line.buf[0]));
-        memcpy(getCharAt(&l->line, l->pos-1)+curSize, prev, prevSize*sizeof(l->line.buf[0]));
+        memcpy(prev, getCharAt(&l->line, l->pos-1), prevSize*sizeof(char_t));
+        memmove(getCharAt(&l->line, l->pos-1), getCharAt(&l->line, l->pos), curSize*sizeof(char_t));
+        memcpy(getCharAt(&l->line, l->pos-1)+curSize, prev, prevSize*sizeof(char_t));
         l->line.charindex[l->pos] = l->line.charindex[l->pos-1] + curSize;
         l->line.charindex[l->pos+1] = l->line.charindex[l->pos] + prevSize;
         if (l->pos != l->line.charlen) l->pos++;
@@ -1876,7 +1885,7 @@ static int freeHistorySearch(struct linenoiseState *l) {
 int setSearchPrompt(struct linenoiseState *l)
 {
     size_t promptlen = l->hist_search.text.bytelen + 23;
-    char* newprompt = calloc(1, promptlen);
+    char_t* newprompt = calloc(sizeof(char_t), promptlen);
     if (newprompt == NULL) {
         errno = ENOMEM;
         return -1;
@@ -1896,9 +1905,9 @@ int linenoiseHistoryFindEntry(struct linenoiseState *l)
         linenoiseString parsed = {NULL, NULL, 0, 0, 0};
         int new_index = l->hist_search.current_index;
         while (new_index < history_len) {
-            char *historyStr = history[history_len - 1 - new_index];
-            char *found = strstr(historyStr, l->hist_search.text.buf);
-            char *last_found = NULL;
+            char_t *historyStr = history[history_len - 1 - new_index];
+            char_t *found = strstr(historyStr, l->hist_search.text.buf);
+            char_t *last_found = NULL;
             if (found != NULL) {
                 int historyStrLen = strlen(historyStr);
                 if (parseLine(historyStr, historyStrLen, &parsed) == -1) return -1;
@@ -1924,8 +1933,8 @@ int linenoiseHistoryFindEntry(struct linenoiseState *l)
                     freeString(&parsed);
                     return -1;
                 }
-                memcpy(l->line.buf, parsed.buf, (parsed.bytelen+1)*sizeof(l->line.buf[0]));
-                memcpy(l->line.charindex, parsed.charindex, (parsed.charlen+1)*sizeof(l->line.charindex[0]));
+                memcpy(l->line.buf, parsed.buf, (parsed.bytelen+1)*sizeof(char_t));
+                memcpy(l->line.charindex, parsed.charindex, (parsed.charlen+1)*sizeof(charpos_t));
                 l->line.bytelen = parsed.bytelen;
                 l->line.charlen = parsed.charlen;
                 l->pos = MIN(l->line.charlen,
@@ -2092,7 +2101,7 @@ static int ensureInitialized(struct linenoiseState *l)
     return 0;
 }
 
-int linenoiseSetPrompt(const char *prompt)
+int linenoiseSetPrompt(const char_t *prompt)
 {
     if (ensureInitialized(&state) == -1) return -1;
     return setPrompt(&state, prompt);
@@ -2137,12 +2146,12 @@ int linenoiseCleanup()
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
-char *linenoise() {
+char_t *linenoise() {
     int saved_errno = errno;
     if (ensureInitialized(&state) == -1) return NULL;
 
     if (!state.is_supported) {
-        char buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
+        char_t buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
         size_t len;
 
         if (state.is_cancelled) {
@@ -2169,7 +2178,7 @@ char *linenoise() {
             len--;
             buf[len] = '\0';
         }
-        char* copy = strdup(buf);
+        char_t* copy = strdup(buf);
         if (copy == NULL) errno = ENOMEM;
         return copy;
     } else {
@@ -2201,7 +2210,7 @@ char *linenoise() {
         }
 
         // Have some text
-        char* copy = strndup(state.line.buf, state.line.bytelen);
+        char_t* copy = strndup(state.line.buf, state.line.bytelen);
 
         clearString(&state.line);
         state.pos = 0;
@@ -2293,20 +2302,20 @@ static void linenoiseAtExit(void) {
 }
 
 /* Using a circular buffer is smarter, but a bit more complex to handle. */
-int linenoiseHistoryAdd(const char *line) {
-    char *linecopy;
+int linenoiseHistoryAdd(const char_t *line) {
+    char_t *linecopy;
 
     if (history_max_len == 0) return 0;
     if (history == NULL) {
-        history = malloc(sizeof(char*)*history_max_len);
+        history = malloc(sizeof(char_t*)*history_max_len);
         if (history == NULL) return 0;
-        memset(history,0,(sizeof(char*)*history_max_len));
+        memset(history,0,(sizeof(char_t*)*history_max_len));
     }
     linecopy = strdup(line);
     if (!linecopy) return 0;
     if (history_len == history_max_len) {
         free(history[0]);
-        memmove(history,history+1,sizeof(history[0])*(history_max_len-1));
+        memmove(history,history+1,sizeof(char_t*)*(history_max_len-1));
         history_len--;
     }
     history[history_len] = linecopy;
@@ -2319,13 +2328,13 @@ int linenoiseHistoryAdd(const char *line) {
  * just the latest 'len' elements if the new history length value is smaller
  * than the amount of items already inside the history. */
 int linenoiseHistorySetMaxLen(int len) {
-    char **new;
+    char_t **new;
 
     if (len < 1) return 0;
     if (history) {
         int tocopy = history_len;
 
-        new = malloc(sizeof(char*)*len);
+        new = malloc(sizeof(char_t*)*len);
         if (new == NULL) return 0;
 
         /* If we can't copy everything, free the elements we'll not use. */
@@ -2335,8 +2344,8 @@ int linenoiseHistorySetMaxLen(int len) {
             for (j = 0; j < tocopy-len; j++) free(history[j]);
             tocopy = len;
         }
-        memset(new,0,sizeof(history[0])*len);
-        memcpy(new,history+(history_len-tocopy), sizeof(history[0])*tocopy);
+        memset(new,0,sizeof(char_t*)*len);
+        memcpy(new,history+(history_len-tocopy), sizeof(char_t*)*tocopy);
         free(history);
         history = new;
     }
@@ -2366,12 +2375,12 @@ int linenoiseHistorySave(char *filename) {
  * on error -1 is returned. */
 int linenoiseHistoryLoad(char *filename) {
     FILE *fp = fopen(filename,"r");
-    char buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
+    char_t buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
     
     if (fp == NULL) return -1;
 
     while (fgets(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,fp) != NULL) {
-        char *p;
+        char_t *p;
         
         p = strchr(buf,'\r');
         if (!p) p = strchr(buf,'\n');

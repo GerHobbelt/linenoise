@@ -46,6 +46,9 @@ extern "C"
 struct linenoiseCompletions;
 typedef struct linenoiseCompletions linenoiseCompletions;
 
+#define char_t char
+#define charpos_t size_t
+
 /**
  * Completion callback with text and cursor position.
  *
@@ -53,7 +56,7 @@ typedef struct linenoiseCompletions linenoiseCompletions;
  * @param cursor cursor position (byte offset)
  * @param completions suggested completions structure to be filled
  */
-typedef void (linenoiseCompletionCallback)(const char *text, size_t cursor,
+typedef void (linenoiseCompletionCallback)(const char_t *text, charpos_t cursor,
     linenoiseCompletions *completions);
 
 /**
@@ -71,7 +74,7 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *callback);
  * @param cursor cursor position to be used (byte offset), or SIZE_MAX to place the cursor at the end
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseAddCompletion(linenoiseCompletions *completions, const char *suggestion, const char *completed_text, size_t cursor);
+int linenoiseAddCompletion(linenoiseCompletions *completions, const char_t *suggestion, const char_t *completed_text, charpos_t cursor);
 
 /**
  * Prepares the line for custom output. The current text is cleared and the
@@ -110,7 +113,7 @@ int linenoiseUpdateSize();
  * @param prompt new prompt
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseSetPrompt(const char *prompt);
+int linenoiseSetPrompt(const char_t *prompt);
 
 /**
  * Shows the prompt without reading any character.
@@ -149,7 +152,7 @@ int linenoiseCleanup();
  * descriptor type. In case of error other than EAGAIN/EWOULDBLOCK, the ursor is
  * moved to new line and TTY raw mode is left automatically.
  */
-char *linenoise();
+char_t *linenoise();
 
 /**
  * Adds line of history.
@@ -157,7 +160,7 @@ char *linenoise();
  * @param line line to be added
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseHistoryAdd(const char *line);
+int linenoiseHistoryAdd(const char_t *line);
 
 /**
  * Sets maximum number of lines in history.
