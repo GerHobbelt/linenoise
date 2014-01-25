@@ -1550,9 +1550,11 @@ int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
 int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
     l->history_index = index;
     if (l->history_index < 0) {
+        if (linenoiseBeep() == -1) return -1;
         l->history_index = 0;
         return 0;
     } else if (l->history_index >= history_len) {
+        if (linenoiseBeep() == -1) return -1;
         l->history_index = history_len - 1;
         return 0;
     }
@@ -1576,9 +1578,10 @@ int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
         /* Show the new entry */
         int new_index = l->history_index + ((dir == LINENOISE_HISTORY_PREV) ? 1 : -1);
         return linenoiseShowHistoryEntry(l, new_index, SIZE_MAX);
-    }
-    else
+    } else {
+        if (linenoiseBeep() == -1) return -1;
         return 0;
+    }
 }
 
 int deleteChar(struct linenoiseString *s, size_t pos)
