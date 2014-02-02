@@ -426,8 +426,6 @@ static int isUnsupportedTerm(int fd) {
     char *term;
     int j;
 
-    return 0;
-
     if ( !isatty(fd) )
         return 1;
 
