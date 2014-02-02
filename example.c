@@ -1,3 +1,7 @@
+#define _POSIX_C_SOURCE 200112L
+#define _XOPEN_SOURCE 500
+#define _BSD_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +23,7 @@ bool do_exit = false;
 void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
     if (strncmp(buf, "multi kulti", 11) == 0) {
-        // No hints
+        /* No hints */
     } else if (strncmp(buf, "multi", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
         linenoiseAddCompletion(lc, "kulti", "multi kulti", SIZE_MAX);
     } else if (strncmp(buf, "hello", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
@@ -50,9 +54,9 @@ void sigwinch_handler(int signum)
 void sigalrm_handler(int signum)
 {
     (void) signum;
-    // This signal just wakes-up the poll method, so that the method linenoise
-    // gets called - this differentiates handling of the ESC key from the ANSI
-    // escape sequences.
+    /* This signal just wakes-up the poll method, so that the method linenoise */
+    /* gets called - this differentiates handling of the ESC key from the ANSI */
+    /* escape sequences. */
 }
 
 void sigterm_handler(int signum)
@@ -65,6 +69,8 @@ int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
     bool async = false;
+    struct sigaction sa;
+    int found_error = 0;
 
     /* Parse options, with --multiline we enable multi line editing. */
     while(argc > 1) {
@@ -74,9 +80,11 @@ int main(int argc, char **argv) {
             linenoiseSetMultiLine(1);
             printf("Multi-line mode enabled.\n");
         } else  if (!strcmp(*argv,"--async")) {
-            async = true;
+            int flagsRead;
 
-            int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
+            async = true;
+            flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
+
             fcntl(STDIN_FILENO, F_SETFL, flagsRead | O_NONBLOCK);
 
             printf("Asynchronous mode enabled.\n");
@@ -88,7 +96,6 @@ int main(int argc, char **argv) {
 
     setlocale(LC_CTYPE, "");
 
-    struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigint_handler;
     sigaction(SIGINT, &sa, NULL);
@@ -116,11 +123,10 @@ int main(int argc, char **argv) {
      *
      * The typed string is returned as a malloc() allocated string by
      * linenoise, so the user needs to free() it. */
-    int found_error = 0;
 
     do {
         if (async) {
-            // Block signals to have a reliable call to linenoiseHasPendingChar
+            /* Block signals to have a reliable call to linenoiseHasPendingChar */
             sigset_t set, oldset;
             sigemptyset(&set);
             sigaddset(&set, SIGINT);
@@ -132,11 +138,12 @@ int main(int argc, char **argv) {
 
             if (!linenoiseHasPendingChar()) {
                 fd_set fds;
-                struct timespec tv = { tv_sec: POLL_TIMEOUT_MS / 1000,
-                        tv_nsec : (POLL_TIMEOUT_MS % 1000) * 1000000L };
+                int selectresult;
+                struct timespec tv = { POLL_TIMEOUT_MS / 1000,
+                        (POLL_TIMEOUT_MS % 1000) * 1000000L };
                 FD_ZERO(&fds);
                 FD_SET(STDIN_FILENO, &fds);
-                int selectresult = pselect(STDIN_FILENO + 1, &fds, NULL, NULL, &tv, &oldset);
+                selectresult = pselect(STDIN_FILENO + 1, &fds, NULL, NULL, &tv, &oldset);
                 if (selectresult == 0) {
                     linenoiseCustomOutput();
                     printf("* Ping\n");
@@ -152,7 +159,7 @@ int main(int argc, char **argv) {
         if (line != NULL) {
             /* Do something with the string. */
             if (line[0] != '\0' && line[0] != '/') {
-                if (async)  // Can be called also in blocking mode (does nothing)
+                if (async)  /* Can be called also in blocking mode (does nothing) */
                     linenoiseCustomOutput();
                 printf("echo: '%s'\n", line);
                 linenoiseHistoryAdd(line); /* Add to the history. */
@@ -162,7 +169,7 @@ int main(int argc, char **argv) {
                 int len = atoi(line+11);
                 linenoiseHistorySetMaxLen(len);
             } else if (line[0] == '/') {
-                if (async)  // Can be called also in blocking mode (does nothing)
+                if (async)  /* Can be called also in blocking mode (does nothing) */
                     linenoiseCustomOutput();
                 printf("Unreconized command: %s\n", line);
             }
