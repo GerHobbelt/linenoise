@@ -38,6 +38,11 @@
 #ifndef __LINENOISE_H
 #define __LINENOISE_H
 
+#ifdef _WIN32
+#include <Windows.h>
+#include <tchar.h>
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -46,8 +51,17 @@ extern "C"
 struct linenoiseCompletions;
 typedef struct linenoiseCompletions linenoiseCompletions;
 
+#pragma push_macro("char_t")
+#pragma push_macro("charpos_t")
+#undef char_t
+#undef charpos_t
+#ifdef _WIN32
+#define char_t TCHAR
+#define charpos_t size_t
+#else
 #define char_t char
 #define charpos_t size_t
+#endif
 
 /**
  * Completion callback with text and cursor position.
@@ -100,6 +114,7 @@ int linenoiseCustomOutput();
  */
 int linenoiseCancel();
 
+#ifndef _WIN32
 /**
  * Reconfigures the window size.
  *
@@ -107,6 +122,18 @@ int linenoiseCancel();
  * is not being called.
  */
 int linenoiseUpdateSize();
+#endif
+
+#ifdef _WIN32
+/**
+ * Instructs the linenoise to use asynchronous mode.
+ *
+ * If in asynchronous mode, returns with EAGAIN when no character is pending.
+ *
+ * @param is_async if non-zero, mode is asynchronous
+ */
+void linenoiseSetAsync(int is_async);
+#endif
 
 /** Sets the prompt.
  *
@@ -176,7 +203,7 @@ int linenoiseHistorySetMaxLen(int len);
  * @param filename history file name
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseHistorySave(char *filename);
+int linenoiseHistorySave(char_t *filename);
 
 /**
  * Loads the history from the file.
@@ -184,7 +211,7 @@ int linenoiseHistorySave(char *filename);
  * @param filename history file name
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseHistoryLoad(char *filename);
+int linenoiseHistoryLoad(char_t *filename);
 
 /**
  * Clears the screen.
@@ -201,6 +228,9 @@ int linenoiseClearScreen(void);
  * @param ml non-zero to use multi-line mode, zero for single-line.
  */
 void linenoiseSetMultiLine(int ml);
+
+#pragma pop_macro("charpos_t")
+#pragma pop_macro("char_t")
 
 #ifdef __cplusplus
 }

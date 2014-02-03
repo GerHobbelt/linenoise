@@ -2,62 +2,104 @@
 #define _XOPEN_SOURCE 500
 #define _BSD_SOURCE
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <errno.h>
-#include <sys/select.h>
 #include <ctype.h>
 #include <locale.h>
 #include "linenoise.h"
 
+#ifdef _WIN32
+#include <io.h>
+#include <conio.h>
+#define EWOULDBLOCK EAGAIN
+
+#define bool int
+#define true 1
+#define false 0
+#else
+#include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <sys/select.h>
+#define TCHAR char
+#define _T(x) x
+#define _tcsncmp strncmp
+#define _tstoi atoi
+#define _tprintf printf
+#endif
+
 #define POLL_TIMEOUT_MS 10000
 
-bool do_exit = false;
+static bool do_exit = false;
 
-void completion(const char *buf, size_t pos, linenoiseCompletions *lc) {
+#ifdef _WIN32
+HANDLE wakeup_event;
+#endif
+
+static void completion(const TCHAR *buf, size_t pos, linenoiseCompletions *lc) {
     (void) pos;
-    if (strncmp(buf, "multi kulti", 11) == 0) {
+    if (_tcsncmp(buf, _T("multi kulti"), 11) == 0) {
         /* No hints */
-    } else if (strncmp(buf, "multi", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
-        linenoiseAddCompletion(lc, "kulti", "multi kulti", SIZE_MAX);
-    } else if (strncmp(buf, "hello", 5) == 0 && (buf[5] == '\0' || isspace(buf[5]))) {
-        if (buf[5] == '\0' || (isspace(buf[5]) && (buf[6] == '\0' || buf[6] == 't')))
-            linenoiseAddCompletion(lc, "there", "hello there", SIZE_MAX);
-        if (buf[5] == '\0' || (isspace(buf[5]) && (buf[6] == '\0' || buf[6] == 'h')))
-            linenoiseAddCompletion(lc, "here", "hello here", SIZE_MAX);
+    } else if (_tcsncmp(buf, _T("multi"), 5) == 0 && isspace(buf[5])) {
+        linenoiseAddCompletion(lc, _T("kulti"), _T("multi kulti"), SIZE_MAX);
+    } else if (_tcsncmp(buf, _T("hello"), 5) == 0 && isspace(buf[5])) {
+        if (buf[5] == _T('\0') || (isspace(buf[5]) && (buf[6] == _T('\0') || buf[6] == _T('t'))))
+            linenoiseAddCompletion(lc, _T("there"), _T("hello there"), SIZE_MAX);
+        if (buf[5] == _T('\0') || (isspace(buf[5]) && (buf[6] == _T('\0') || buf[6] == _T('h'))))
+            linenoiseAddCompletion(lc, _T("here"), _T("hello here"), SIZE_MAX);
     } else {
-        if (buf[0] == 'h' || buf[0] == '\0')
-            linenoiseAddCompletion(lc, "hello", "hello ", SIZE_MAX);
-        if (buf[0] == 'm' || buf[0] == '\0')
-            linenoiseAddCompletion(lc, "multi", "multi ", SIZE_MAX);
+        if (buf[0] == _T('h') || buf[0] == _T('\0'))
+            linenoiseAddCompletion(lc, _T("hello"), _T("hello "), SIZE_MAX);
+        if (buf[0] == _T('m') || buf[0] == _T('\0'))
+            linenoiseAddCompletion(lc, _T("multi"), _T("multi "), SIZE_MAX);
     }
 }
 
-void sigint_handler(int signum)
+static void sigint_handler(int signum)
 {
     (void) signum;
     linenoiseCancel();
 }
 
-void sigwinch_handler(int signum)
+#ifndef _WIN32
+static void sigwinch_handler(int signum)
 {
     (void) signum;
     linenoiseUpdateSize();
 }
 
-void sigalrm_handler(int signum)
+static void sigalrm_handler(int signum)
 {
     (void) signum;
     /* This signal just wakes-up the poll method, so that the method linenoise */
     /* gets called - this differentiates handling of the ESC key from the ANSI */
     /* escape sequences. */
 }
+#endif
+
+#ifdef _WIN32
+static BOOL WINAPI console_handler(DWORD win_event)
+{
+	switch (win_event)
+	{
+	case CTRL_C_EVENT: sigint_handler(SIGINT); break;
+	case CTRL_BREAK_EVENT: sigint_handler(SIGINT); break;
+	default: break;
+	}
+	SetEvent(wakeup_event);
+    return TRUE;
+}
+#endif
 
 void sigterm_handler(int signum)
 {
@@ -66,11 +108,17 @@ void sigterm_handler(int signum)
 }
 
 int main(int argc, char **argv) {
-    char *line;
+    TCHAR *line;
     char *prgname = argv[0];
     bool async = false;
-    struct sigaction sa;
+#ifdef _WIN32
+	HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+#else
+	struct sigaction sa;
+#endif
     int found_error = 0;
+
+    setlocale(LC_CTYPE, "");
 
     /* Parse options, with --multiline we enable multi line editing. */
     while(argc > 1) {
@@ -80,13 +128,13 @@ int main(int argc, char **argv) {
             linenoiseSetMultiLine(1);
             printf("Multi-line mode enabled.\n");
         } else  if (!strcmp(*argv,"--async")) {
-            int flagsRead;
-
-            async = true;
-            flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
-
+#ifdef _WIN32
+            linenoiseSetAsync(true);
+#else
+            int flagsRead = fcntl(STDIN_FILENO, F_GETFL, 0);
             fcntl(STDIN_FILENO, F_SETFL, flagsRead | O_NONBLOCK);
-
+#endif
+            async = true;
             printf("Asynchronous mode enabled.\n");
         } else {
             fprintf(stderr, "Usage: %s [--multiline] [--async]\n", prgname);
@@ -96,6 +144,10 @@ int main(int argc, char **argv) {
 
     setlocale(LC_CTYPE, "");
 
+#ifdef _WIN32
+	wakeup_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+	SetConsoleCtrlHandler(console_handler, TRUE);
+#else
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigint_handler;
     sigaction(SIGINT, &sa, NULL);
@@ -105,9 +157,10 @@ int main(int argc, char **argv) {
     sigaction(SIGALRM, &sa, NULL);
     sa.sa_handler = sigterm_handler;
     sigaction(SIGTERM, &sa, NULL);
+#endif
 
     /* Set the prompt. */
-    linenoiseSetPrompt("hello> ");
+    linenoiseSetPrompt(_T("hello> "));
 
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
@@ -115,7 +168,7 @@ int main(int argc, char **argv) {
 
     /* Load history from file. The history file is just a plain text file
      * where entries are separated by newlines. */
-    linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
+    linenoiseHistoryLoad(_T("history.txt")); /* Load the history at startup */
 
     /* Now this is the main loop of the typical linenoise-based application.
      * The call to linenoise() will block as long as the user types something
@@ -127,16 +180,25 @@ int main(int argc, char **argv) {
     do {
         if (async) {
             /* Block signals to have a reliable call to linenoiseHasPendingChar */
+#ifndef _WIN32
             sigset_t set, oldset;
             sigemptyset(&set);
             sigaddset(&set, SIGINT);
             sigaddset(&set, SIGALRM);
             sigaddset(&set, SIGWINCH);
             pthread_sigmask(SIG_BLOCK, &set, &oldset);
-
+#endif
             linenoiseShowPrompt();
 
             if (!linenoiseHasPendingChar()) {
+#ifdef _WIN32
+				HANDLE handles[2] = { input, wakeup_event };
+				DWORD result = WaitForMultipleObjects(2, handles, FALSE, POLL_TIMEOUT_MS);
+				if ( result == WAIT_TIMEOUT ) {
+					linenoiseCustomOutput();
+					printf("* Ping\n");
+				}
+#else
                 fd_set fds;
                 int selectresult;
                 struct timespec tv = { POLL_TIMEOUT_MS / 1000,
@@ -148,10 +210,13 @@ int main(int argc, char **argv) {
                     linenoiseCustomOutput();
                     printf("* Ping\n");
                 }
-            }
+#endif
+			}
 
+#ifndef _WIN32
             pthread_sigmask(SIG_SETMASK, &oldset, NULL);
-        }
+#endif
+		}
 
         errno = 0;
         line = linenoise();
@@ -161,17 +226,17 @@ int main(int argc, char **argv) {
             if (line[0] != '\0' && line[0] != '/') {
                 if (async)  /* Can be called also in blocking mode (does nothing) */
                     linenoiseCustomOutput();
-                printf("echo: '%s'\n", line);
+                _tprintf(_T("echo: '%s'\n"), line);
                 linenoiseHistoryAdd(line); /* Add to the history. */
-                linenoiseHistorySave("history.txt"); /* Save the history on disk. */
-            } else if (!strncmp(line,"/historylen",11)) {
+                linenoiseHistorySave(_T("history.txt")); /* Save the history on disk. */
+            } else if (!_tcsncmp(line,_T("/historylen"),11)) {
                 /* The "/historylen" command will change the history len. */
-                int len = atoi(line+11);
+                int len = _tstoi(line+11);
                 linenoiseHistorySetMaxLen(len);
             } else if (line[0] == '/') {
                 if (async)  /* Can be called also in blocking mode (does nothing) */
                     linenoiseCustomOutput();
-                printf("Unreconized command: %s\n", line);
+                _tprintf(_T("Unreconized command: %s\n"), line);
             }
             free(line);
         }
@@ -181,7 +246,13 @@ int main(int argc, char **argv) {
     linenoiseCleanup();
 
     if (found_error != 0 && found_error != EINTR) {
-        printf("Error: %s\n", strerror(found_error));
+		char buf[1024];
+#ifdef _WIN32
+		strerror_s(buf, sizeof(buf), found_error);
+#else
+		strerror_r(found_error, buf, sizeof(buf));
+#endif
+        printf("Error: %s\n", buf);
     }
     return 0;
 }
