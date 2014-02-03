@@ -2006,8 +2006,10 @@ int cancelInternal(struct linenoiseState *l)
     if (linenoiseEditReplace(l, getChar(&c, '^')) == -1) return -1;
     if (linenoiseEditReplace(l, getChar(&c, 'C')) == -1) return -1;
 
-    l->pos = l->line.charlen;
-    if (refreshLine(l) == -1) return -1;
+    if (mlmode) {
+        l->pos = l->line.charlen;
+        if (refreshLine(l) == -1) return -1;
+    }
 
     clearString(&l->line);
     resetOnNewline(l);
