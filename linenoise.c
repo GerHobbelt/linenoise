@@ -1475,7 +1475,7 @@ int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t 
             memcpy(getCharAt(s, pos), c->rawChars, c->rawCharsLen*sizeof(char_t));
             s->charlen++;
             s->bytelen += c->rawCharsLen;
-            for (i = pos; i <= s->charlen; ++i)
+            for (i = pos+1; i <= s->charlen; ++i)
                 s->charindex[i] += c->rawCharsLen;
             s->buf[s->bytelen] = '\0';
         }
