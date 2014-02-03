@@ -747,8 +747,8 @@ static int cursorMoveLeft(struct linenoiseState *l)
     }
     return 0;
 #else
-    const char* seq = "\x1b[0G";
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    const char* seq = "\x1b[1G";
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -762,8 +762,9 @@ static int cursorSetColumn(struct linenoiseState *l, size_t column)
         SetConsoleCursorPosition(l->fdout, pos);
     }
 #else
-    if (snprintf(seq,64,"\x1b[%zuG", column) < 0) return -1;
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    char seq[64];
+    if (snprintf(seq,64,"\x1b[%zuG", column+1) < 0) return -1;
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -779,8 +780,9 @@ static int cursorMoveDown(struct linenoiseState *l, size_t rows)
         SetConsoleCursorPosition(l->fdout, pos);
     }
 #else
+    char seq[64];
     if (snprintf(seq,64,"\x1b[%zuB", rows) < 0) return -1;
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -796,8 +798,9 @@ static int cursorMoveUp(struct linenoiseState *l, size_t rows)
         SetConsoleCursorPosition(l->fdout, pos);
     }
 #else
+    char seq[64];
     if (snprintf(seq,64,"\x1b[%zuA", rows) < 0) return -1;
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -820,7 +823,7 @@ static int eraseLineEnd(struct linenoiseState *l)
         SetConsoleMode(l->fdout, oldmode);
 #else
     const char* seq = "\x1b[0K";
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -832,8 +835,9 @@ static int eraseLineAndMoveUp(struct linenoiseState *l)
     if (eraseLineEnd(l) == -1) return -1;
     if (cursorMoveUp(l, 1) == -1) return -1;
 #else
+    char seq[64];
     if (snprintf(seq,64,"\x1b[0G\x1b[0K\x1b[1A") < 0) return -1;
-    if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+    if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
 #endif
     return 0;
 }
@@ -1221,11 +1225,13 @@ static int refreshMultiLine(struct linenoiseState *l) {
     }
 
     /* Now for every row clear it, go up. */
-    for (j = 0; j < old_rows-1; j++) {
+    if (old_rows > 1) {
+        for (j = 0; j < old_rows-1; j++) {
 #ifdef LN_DEBUG
-        fprintf(fp,", clear+up");
+            fprintf(fp,", clear+up");
 #endif
-        if (eraseLineAndMoveUp(l) == -1) return -1;
+            if (eraseLineAndMoveUp(l) == -1) return -1;
+        }
     }
 
     /* Clean the top line. */
@@ -1250,9 +1256,8 @@ static int refreshMultiLine(struct linenoiseState *l) {
 #endif
 
 #ifndef _WIN32
-        if (RETRY(write(fd,"\n",1)) == -1) return -1;
-        if (snprintf(seq,64,"\x1b[0G") < 0) return -1;
-        if (RETRY(write(fd,seq,strlen(seq))) == -1) return -1;
+        if (RETRY(write(l->fd,"\n",1)) == -1) return -1;
+        if (cursorSetColumn(l, 0) == -1) return -1;
 #endif
         rows++;
         if (rows > (int)l->maxrows) l->maxrows = rows;
@@ -1264,7 +1269,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     fprintf(fp,", rpos2 %d", rpos2);
 #endif
     /* Go up till we reach the expected positon. */
-    if (rows-rpos2 > 0) {
+    if (rows > rpos2) {
 #ifdef LN_DEBUG
         fprintf(fp,", go-up %d", rows-rpos2);
 #endif
@@ -2413,7 +2418,7 @@ int setSearchPrompt(struct linenoiseState *l)
 #ifdef _WIN32
         _sntprintf_s(newprompt, promptlen, _TRUNCATE, _T("(reverse-i-search`%s'): "), l->hist_search.text.buf);
 #else
-        snprintf_s(newprompt, promptlen, _T("(reverse-i-search`%s'): "), l->hist_search.text.buf);
+        snprintf(newprompt, promptlen, _T("(reverse-i-search`%s'): "), l->hist_search.text.buf);
 #endif
     newprompt[promptlen-1] = _T('\0');
     result = setTempPrompt(l, newprompt);
