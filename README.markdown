@@ -8,7 +8,7 @@ original code at http://github.com/antirez/linenoise.
 * History handling.
 * Completion.
 * Bash-like history search.
-* Under 2,000 lines of BSD license source code, the original is under 1,000
+* Around 3,000 lines of BSD license source code, the original is under 1,000
   lines of code.
 
 ## Can a line editing library be 20k lines of code?

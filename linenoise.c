@@ -48,9 +48,6 @@
  * - http://www.ecma-international.org/publications/standards/Ecma-035.htm
  * - http://www.ecma-international.org/publications/standards/Ecma-048.htm
  *
- * Todo list:
- * - Win32 support
- *
  * List of escape sequences used by this program, we do everything just
  * with three sequences. In order to be so cheap we may have some
  * flickering effect with some slow terminal, but the lesser sequences
