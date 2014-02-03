@@ -1171,7 +1171,7 @@ static int refreshSingleLine(struct linenoiseState *l) {
     /* Cursor to left edge */
     if (cursorMoveLeft(l) == -1) return -1;
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && prompt->bytelen > 0 && writeLine(l, prompt, 0, SIZE_MAX) == -1) return -1;
+    if (prompt->buf != NULL && prompt->bytelen > 0 && writeLine(l, prompt, 0, SIZE_MAX) == -1) return -1;
     if (writeLine(l, &l->line, charpos, charlen) == -1) return -1;
 #ifdef _WIN32
     // Workaround for wrong cursor movement.
@@ -1242,23 +1242,38 @@ static int refreshMultiLine(struct linenoiseState *l) {
     if (eraseLineEnd(l) == -1) return -1;
     
     /* Write the prompt and the current buffer content */
-    if (prompt != NULL && prompt->bytelen > 0 && writeLine(l,prompt,0,SIZE_MAX) == -1) return -1;
-    if (writeLine(l,&l->line,0,SIZE_MAX) == -1) return -1;
+    if (prompt->buf != NULL && prompt->bytelen > 0 && writeLine(l,prompt,0,SIZE_MAX) == -1) return -1;
+
+#ifdef _WIN32
+    if (prompt->charlen+l->line.charlen > 0 &&
+        (prompt->charlen+l->line.charlen) % l->cols == 0) {
+        if (writeLine(l,&l->line,0,l->line.charlen-1) == -1) return -1;
+        SetConsoleMode(l->fdout, orig_outconsolemode & ~ENABLE_WRAP_AT_EOL_OUTPUT);
+        if (writeLine(l,&l->line,l->line.charlen-1, 1) == -1) return -1;
+        SetConsoleMode(l->fdout, orig_outconsolemode);
+    }
+    else
+#endif
+        if (writeLine(l,&l->line,0,SIZE_MAX) == -1) return -1;
 
     /* If we are at the very end of the screen with our prompt, we need to
      * emit a newline and move the prompt to the first column. */
     if (l->pos &&
         l->pos == l->line.charlen &&
+        (l->pos+prompt->charlen) > 0 &&
         (l->pos+prompt->charlen) % l->cols == 0)
     {
 #ifdef LN_DEBUG
         fprintf(fp,", <newline>");
 #endif
 
-#ifndef _WIN32
+#ifdef _WIN32
+        if (!WriteConsole(l->fdout, _T("\n"), 1, NULL, NULL)) return -1;
+#else
         if (RETRY(write(l->fd,"\n",1)) == -1) return -1;
-        if (cursorSetColumn(l, 0) == -1) return -1;
 #endif
+        if (cursorSetColumn(l, 0) == -1) return -1;
+
         rows++;
         if (rows > (int)l->maxrows) l->maxrows = rows;
     }
