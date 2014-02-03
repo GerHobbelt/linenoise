@@ -601,6 +601,7 @@ static void disableRawMode(struct linenoiseState *l) {
 #ifdef _WIN32
         SetConsoleMode(l->fdin, orig_inconsolemode);
         SetConsoleMode(l->fdout, orig_outconsolemode);
+        rawmode = 0;
 #else
         if (tcsetattr(l->fd,TCSAFLUSH,&orig_termios) != -1)
             rawmode = 0;
@@ -807,7 +808,7 @@ static int eraseLineEnd(struct linenoiseState *l)
 #ifdef _WIN32
     DWORD oldmode = (DWORD)-1;
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (GetConsoleMode(l->fdout, &oldmode))
+    if (mlmode && GetConsoleMode(l->fdout, &oldmode))
         SetConsoleMode(l->fdout, oldmode & ~ENABLE_WRAP_AT_EOL_OUTPUT);
     if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
         DWORD written = 0;
@@ -816,7 +817,7 @@ static int eraseLineEnd(struct linenoiseState *l)
         SetConsoleCursorPosition(l->fdout, info.dwCursorPosition);
     }
 
-    if (oldmode != (DWORD)-1)
+    if (mlmode && oldmode != (DWORD)-1)
         SetConsoleMode(l->fdout, oldmode);
 #else
     const char* seq = "\x1b[0K";
