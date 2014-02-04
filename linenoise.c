@@ -2750,11 +2750,13 @@ char_t *linenoise() {
                 disableRawMode(&state);
             errno = EINTR;
             return NULL;
-        } else if (result == LR_CLOSED && state.line.bytelen == 0) {
+        } else if (result == LR_CLOSED) {
             resetOnNewline(&state);
             _tprintf(_T("\r\n"));
-            errno = 0;
-            return NULL;
+            if (state.line.bytelen == 0) {
+                errno = 0;
+                return NULL;
+            }
         } else if (result == LR_ERROR) {
             if (errno != EWOULDBLOCK && errno != EAGAIN) {
                 resetOnNewline(&state);
