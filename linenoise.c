@@ -2990,7 +2990,7 @@ int linenoiseHistoryLoad(char_t *filename) {
     errno = _tfopen_s(&fp, filename, _T("r"));
 #endif
 #else
-    fp = fopen(filename, "w");
+    fp = fopen(filename, "r");
 #endif
     
     if (fp == NULL) return -1;
