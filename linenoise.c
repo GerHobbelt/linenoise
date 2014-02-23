@@ -157,6 +157,7 @@
 #define ERROR_ECANCELLED EINTR
 #define ERROR_EAGAIN EAGAIN
 #define ERROR_EWOULDBLOCK EWOULDBLOCK
+#define ERROR_ENOTTY ENOTTY
 
 #include <termios.h>
 #include <unistd.h>
@@ -472,11 +473,11 @@ static unicode_t getUnicodeCharAt(struct linenoiseString *s, size_t pos)
 {
 #if !defined(_WIN32)
     wchar_t c = 0;
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
     mbstate_t state;
     memset(&state, 0, sizeof(state));
     (void) mbrtowc(&c, getCharAt(s, pos), 1, &state);
-    errno = saved_errno;
+    setError(saved_errno);
     return c;
 #else   /* _WIN32 */
 #if !defined(_UNICODE)
@@ -615,7 +616,7 @@ static int enableRawMode(struct linenoiseState *l) {
 
 #ifndef _WIN32
 fatal:
-    errno = ENOTTY;
+    setError(ERROR_ENOTTY);
     return -1;
 #endif
 }
@@ -1768,7 +1769,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
     }
 
     if (nread > 0) {
-        int saved_errno = errno;
+        errno_t saved_errno = getError();
         size_t insertIndex = l->rawChar.currentChar.rawCharsLen;
         size_t validChars;
 
@@ -1777,12 +1778,12 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
         validChars = mbrlen(
                 (char_t*)l->rawChar.currentChar.rawChars + insertIndex, 1,
                 &l->rawChar.readingState);
-        errno = saved_errno;
+        setError(saved_errno);
         if (validChars == (size_t)-1) {
             pushBackRawChars(l, &l->rawChar.currentChar);
             l->rawChar.is_emited = true;
         } else if (validChars != (size_t)-2) {
-            int saved_errno = errno;
+            errno_t saved_errno = getError();
             wchar_t character = 0;
             const char_t *rawChars = (char_t*)l->rawChar.currentChar.rawChars;
             mbstate_t state;
@@ -1795,7 +1796,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
             } else {
                 l->rawChar.currentChar.unicodeChar = character;
             }
-            errno = saved_errno;
+            setError(saved_errno);
         }
         if (l->rawChar.currentChar.rawCharsLen == MAX_RAW_CHARS) {
             /* No more characters to store, but still no valid one read */
