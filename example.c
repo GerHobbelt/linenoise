@@ -21,7 +21,9 @@
 #ifdef _WIN32
 #include <io.h>
 #include <conio.h>
+#ifndef EWOULDBLOCK
 #define EWOULDBLOCK EAGAIN
+#endif
 
 #define bool int
 #define true 1
