@@ -2769,15 +2769,19 @@ char_t *linenoise() {
         char_t* copy;
 
         if (result == LR_CANCELLED) {
-            resetOnNewline(&state);
-            _tprintf(_T("\r\n"));
+            if (state.is_displayed) {
+                resetOnNewline(&state);
+                _tprintf(_T("\r\n"));
+            }
             if (state.is_async)
                 disableRawMode(&state);
             setError(ERROR_ECANCELLED);
             return NULL;
         } else if (result == LR_CLOSED) {
-            resetOnNewline(&state);
-            _tprintf(_T("\r\n"));
+            if (state.is_displayed) {
+                resetOnNewline(&state);
+                _tprintf(_T("\r\n"));
+            }
             if (state.line.bytelen == 0) {
                 setError(ERROR_NONE);
                 return NULL;
