@@ -21,9 +21,6 @@
 #ifdef _WIN32
 #include <io.h>
 #include <conio.h>
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK EAGAIN
-#endif
 
 #define bool int
 #define true 1
@@ -114,11 +111,12 @@ int main(int argc, char **argv) {
     char *prgname = argv[0];
     bool async = false;
 #ifdef _WIN32
-	HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD found_error = 0;
 #else
-	struct sigaction sa;
-#endif
+    struct sigaction sa;
     int found_error = 0;
+#endif
 
     setlocale(LC_CTYPE, "");
 
@@ -220,9 +218,17 @@ int main(int argc, char **argv) {
 #endif
 		}
 
+#ifdef _WIN32
+        SetLastError(ERROR_SUCCESS);
+#else
         errno = 0;
+#endif
         line = linenoise();
+#ifdef _WIN32
+        found_error = GetLastError();
+#else
         found_error = errno;
+#endif
         if (line != NULL) {
             /* Do something with the string. */
             if (line[0] != '\0' && line[0] != '/') {
@@ -242,12 +248,22 @@ int main(int argc, char **argv) {
             }
             free(line);
         }
+#ifdef _WIN32
+    } while ((line != NULL || found_error == ERROR_CONTINUE) && !do_exit);
+#else
     } while ((line != NULL || found_error == EWOULDBLOCK
             || found_error == EAGAIN) && !do_exit);
+#endif
 
     linenoiseCleanup();
 
-    if (found_error != 0 && found_error != EINTR) {
+    if (found_error != 0
+#ifdef _WIN32
+            && found_error != ERROR_CANCELLED
+#else
+            && found_error != EINTR
+#endif
+        ) {
 		char buf[1024];
 #ifdef _WIN32
 		strerror_s(buf, sizeof(buf), found_error);

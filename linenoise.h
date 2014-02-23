@@ -173,11 +173,14 @@ int linenoiseCleanup();
  * Gathers the line from input.
  *
  * @return Text when the full line is read, or NULL in case of error. The errno
- * could be 0 if the file descriptor has been closed, or EINTR in case of
- * CTRL+C, or EAGAIN/EWOULDBLOCK in case of non-blocking mode, or ENOMEM in case
- * of memory allocation failure, or other values that depend on the file
- * descriptor type. In case of error other than EAGAIN/EWOULDBLOCK, the ursor is
- * moved to new line and TTY raw mode is left automatically.
+ * (Linux) or GetLastError() (Windows) could be 0 if the file descriptor
+ * (socket) has been closed remotely, or EINTR (Linux) or ERROR_CANCELLED
+ * (Windows) in case of CTRL+C, or EAGAIN/EWOULDBLOCK (Linux) or ERROR_CONTINUE
+ * (Windows) in case of non-blocking mode, or ENOMEM (Linux) or
+ * ERROR_NOT_ENOUGH_MEMORY (Windows) in case of memory allocation failure, or
+ * other values that depend on the file descriptor type. In case of error other
+ * than EAGAIN/EWOULDBLOCK or ERROR_CONTINUE, the cursor is moved to new line
+ * and TTY raw mode is left automatically.
  */
 char_t *linenoise();
 

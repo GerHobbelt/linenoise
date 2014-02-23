@@ -127,7 +127,17 @@
 #ifdef _WIN32
 #include <io.h>
 
-#define EWOULDBLOCK EAGAIN
+#define setError(x) SetLastError(x)
+#define getError() GetLastError()
+#define errno_t DWORD
+#define ERROR_NONE 0
+#define ERROR_EINVAL ERROR_BAD_ARGUMENTS
+#define ERROR_ENOMEM ERROR_NOT_ENOUGH_MEMORY
+#define ERROR_ERETRY ERROR_RETRY
+#define ERROR_ECANCELLED ERROR_CANCELLED
+#define ERROR_EAGAIN ERROR_CONTINUE
+#define ERROR_EWOULDBLOCK ERROR_CONTINUE
+
 #define bool int
 #define true 1
 #define false 0
@@ -137,6 +147,17 @@
 #define charpos_t size_t
 #define unicode_t __int32
 #else
+#define setError(x) errno = x
+#define getError() errno
+#define errno_t int
+#define ERROR_NONE 0
+#define ERROR_EINVAL EINVAL
+#define ERROR_ENOMEM ENOMEM
+#define ERROR_ERETRY EINTR
+#define ERROR_ECANCELLED EINTR
+#define ERROR_EAGAIN EAGAIN
+#define ERROR_EWOULDBLOCK EWOULDBLOCK
+
 #include <termios.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -163,7 +184,7 @@
 #endif
 
 #define RETRY(expression) \
-	( { int result = (expression); while (result == -1 && errno == EINTR ) result = (expression); result; } )
+	( { int result = (expression); while (result == -1 && getError() == ERROR_ERETRY ) result = (expression); result; } )
 
 #ifndef CTRL
 #define CTRL(c) ((c) & 0x1f)
@@ -379,7 +400,7 @@ static int freeHistorySearch(struct linenoiseState *l);
  * Returns supplied 'tempChar'. */
 static const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unicode_t cs)
 {
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
     tempChar->unicodeChar = cs;
     if (cs > 0) {
 #if !defined(_WIN32)
@@ -420,7 +441,7 @@ static const struct linenoiseChar *getChar(struct linenoiseChar *tempChar, unico
     } else {
         tempChar->rawCharsLen = 0;
     }
-    errno = saved_errno;
+    setError(saved_errno);
     return tempChar;
 }
 
@@ -559,10 +580,12 @@ static int isUnsupportedTerm(struct linenoiseState *l) {
 static int enableRawMode(struct linenoiseState *l) {
     if (!rawmode) {
 #ifdef _WIN32
-        if (GetConsoleMode(l->fdin, &orig_inconsolemode))
-            SetConsoleMode(l->fdin, ENABLE_PROCESSED_INPUT | ENABLE_WINDOW_INPUT);
-        if (GetConsoleMode(l->fdout, &orig_outconsolemode) && !mlmode)
-            SetConsoleMode(l->fdout, orig_outconsolemode & ~ENABLE_WRAP_AT_EOL_OUTPUT);
+        if (!GetConsoleMode(l->fdin, &orig_inconsolemode)) return -1;
+        if (!SetConsoleMode(l->fdin, ENABLE_PROCESSED_INPUT | ENABLE_WINDOW_INPUT)) return -1;
+        if (!GetConsoleMode(l->fdout, &orig_outconsolemode)) return -1;
+        if (!mlmode) {
+            if (!SetConsoleMode(l->fdout, orig_outconsolemode & ~ENABLE_WRAP_AT_EOL_OUTPUT)) return -1;
+        }
 #else
         struct termios raw;
 
@@ -599,7 +622,7 @@ fatal:
 
 /* Disable raw mode. */
 static void disableRawMode(struct linenoiseState *l) {
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
     /* Don't even check the return value as it's too late. */
     if (rawmode) {
 #ifdef _WIN32
@@ -611,7 +634,7 @@ static void disableRawMode(struct linenoiseState *l) {
             rawmode = 0;
 #endif
     }
-    errno = saved_errno;
+    setError(saved_errno);
 }
 
 /* Try to get the number of columns in the current terminal, or assume 80
@@ -660,7 +683,7 @@ static BOOL WINAPI console_handler(DWORD win_event)
 /* Block SIGINT, SIGALRM and SIGWINCH signals. */
 static bool blockSignals(struct linenoiseState *ls) {
     if (!ls->signals_blocked) {
-        int old_errno = errno;
+        errno_t old_errno = getError();
 #ifdef _WIN32
         SetConsoleCtrlHandler(console_handler, TRUE);
 #else
@@ -673,7 +696,7 @@ static bool blockSignals(struct linenoiseState *ls) {
         pthread_sigmask(SIG_BLOCK, &newset, &ls->sigint_oldmask);
 #endif
         ls->signals_blocked = true;
-        errno = old_errno;
+        setError(old_errno);
         return true;
     } else {
         return false;
@@ -683,7 +706,7 @@ static bool blockSignals(struct linenoiseState *ls) {
 /* Re-enable SIGINT, SIGALRM and SIGWINCH signals. */
 static bool revertSignals(struct linenoiseState *ls) {
     if (ls->signals_blocked) {
-        int old_errno = errno;
+        errno_t old_errno = getError();
 #ifdef _WIN32
         int i;
         SetConsoleCtrlHandler(console_handler, FALSE);
@@ -694,7 +717,7 @@ static bool revertSignals(struct linenoiseState *ls) {
         pthread_sigmask(SIG_SETMASK, &ls->sigint_oldmask, NULL);
 #endif
         ls->signals_blocked = false;
-        errno = old_errno;
+        setError(old_errno);
         return true;
     } else
         return false;
@@ -707,11 +730,11 @@ int clearScreen(struct linenoiseState *ls) {
     COORD topleft = { 0, 0 };
 	DWORD n;
     if (!GetConsoleScreenBufferInfo(ls->fdout, &info)) return -1;
-    FillConsoleOutputCharacter(ls->fdout, ' ', (DWORD)(ls->cols * ls->rows), topleft, &n);
-    FillConsoleOutputAttribute(ls->fdout,
+    if (!FillConsoleOutputCharacter(ls->fdout, ' ', (DWORD)(ls->cols * ls->rows), topleft, &n)) return -1;
+    if (!FillConsoleOutputAttribute(ls->fdout,
         FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN, (DWORD)(ls->cols * ls->rows),
-        topleft, &n);
-    SetConsoleCursorPosition(ls->fdout, topleft);
+        topleft, &n)) return -1;
+    if (!SetConsoleCursorPosition(ls->fdout, topleft)) return -1;
 #else
     if (RETRY(write(ls->fd,"\x1b[H\x1b[2J",7)) <= 0) {
         /* nothing to do, just to avoid warning. */
@@ -743,11 +766,10 @@ static int cursorMoveLeft(struct linenoiseState *l)
 {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
-        COORD pos = {0, info.dwCursorPosition.Y};
-        SetConsoleCursorPosition(l->fdout, pos);
-    }
-    return 0;
+    COORD pos = {0, 0};
+    if (!GetConsoleScreenBufferInfo(l->fdout, &info)) return -1;
+	pos.Y = info.dwCursorPosition.Y;
+	if (!SetConsoleCursorPosition(l->fdout, pos)) return -1;
 #else
     const char* seq = "\x1b[1G";
     if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
@@ -759,10 +781,10 @@ static int cursorSetColumn(struct linenoiseState *l, size_t column)
 {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
-        COORD pos = {(SHORT)column, info.dwCursorPosition.Y};
-        SetConsoleCursorPosition(l->fdout, pos);
-    }
+    COORD pos = {(SHORT)column, 0};
+    if (!GetConsoleScreenBufferInfo(l->fdout, &info)) return -1;
+	pos.Y = info.dwCursorPosition.Y;
+	if (!SetConsoleCursorPosition(l->fdout, pos)) return -1;
 #else
     char seq[64];
     if (snprintf(seq,64,"\x1b[%zuG", column+1) < 0) return -1;
@@ -775,12 +797,13 @@ static int cursorMoveDown(struct linenoiseState *l, size_t rows)
 {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
-        COORD pos = {info.dwCursorPosition.X, (SHORT)(info.dwCursorPosition.Y + rows)};
-        if (pos.Y >= info.dwMaximumWindowSize.Y)
-            pos.Y = info.dwMaximumWindowSize.Y - 1;
-        SetConsoleCursorPosition(l->fdout, pos);
-    }
+    COORD pos;
+    if (!GetConsoleScreenBufferInfo(l->fdout, &info)) return -1;
+    pos.X = info.dwCursorPosition.X;
+    pos.Y = (SHORT)(info.dwCursorPosition.Y + rows);
+	if (pos.Y >= info.dwMaximumWindowSize.Y)
+		pos.Y = info.dwMaximumWindowSize.Y - 1;
+	if (!SetConsoleCursorPosition(l->fdout, pos)) return -1;
 #else
     char seq[64];
     if (snprintf(seq,64,"\x1b[%zuB", rows) < 0) return -1;
@@ -793,12 +816,13 @@ static int cursorMoveUp(struct linenoiseState *l, size_t rows)
 {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
-        COORD pos = {info.dwCursorPosition.X, (SHORT)(info.dwCursorPosition.Y - rows)};
-        if (pos.Y < 0)
-            pos.Y = 0;
-        SetConsoleCursorPosition(l->fdout, pos);
-    }
+    COORD pos;
+    if (!GetConsoleScreenBufferInfo(l->fdout, &info)) return -1;
+	pos.X = info.dwCursorPosition.X;
+	pos.Y = (SHORT)(info.dwCursorPosition.Y - rows);
+	if (pos.Y < 0)
+		pos.Y = 0;
+	if (!SetConsoleCursorPosition(l->fdout, pos)) return -1;
 #else
     char seq[64];
     if (snprintf(seq,64,"\x1b[%zuA", rows) < 0) return -1;
@@ -812,17 +836,19 @@ static int eraseLineEnd(struct linenoiseState *l)
 #ifdef _WIN32
     DWORD oldmode = (DWORD)-1;
     CONSOLE_SCREEN_BUFFER_INFO info;
-    if (mlmode && GetConsoleMode(l->fdout, &oldmode))
-        SetConsoleMode(l->fdout, oldmode & ~ENABLE_WRAP_AT_EOL_OUTPUT);
-    if (GetConsoleScreenBufferInfo(l->fdout, &info)) {
-        DWORD written = 0;
-        FillConsoleOutputCharacter(l->fdout, _T(' '),
-            info.dwMaximumWindowSize.X-info.dwCursorPosition.X, info.dwCursorPosition, &written);
-        SetConsoleCursorPosition(l->fdout, info.dwCursorPosition);
+    DWORD written = 0;
+    if (mlmode) {
+        if (!GetConsoleMode(l->fdout, &oldmode)) return -1;
+        if (!SetConsoleMode(l->fdout, oldmode & ~ENABLE_WRAP_AT_EOL_OUTPUT)) return -1;
     }
+    if (!GetConsoleScreenBufferInfo(l->fdout, &info)) return -1;
+	if (!FillConsoleOutputCharacter(l->fdout, _T(' '),
+		info.dwMaximumWindowSize.X-info.dwCursorPosition.X, info.dwCursorPosition, &written)) return -1;
+	if (!SetConsoleCursorPosition(l->fdout, info.dwCursorPosition)) return -1;
 
-    if (mlmode && oldmode != (DWORD)-1)
-        SetConsoleMode(l->fdout, oldmode);
+    if (mlmode && oldmode != (DWORD)-1) {
+        if (!SetConsoleMode(l->fdout, oldmode)) return -1;
+    }
 #else
     const char* seq = "\x1b[0K";
     if (RETRY(write(l->fd,seq,strlen(seq))) == -1) return -1;
@@ -847,7 +873,7 @@ static int eraseLineAndMoveUp(struct linenoiseState *l)
 static int writeChar(struct linenoiseState *l, const struct linenoiseChar *c)
 {
 #ifdef _WIN32
-    WriteConsole(l->fdout, c->rawChars, (DWORD)c->rawCharsLen, NULL, NULL);
+    if (!WriteConsole(l->fdout, c->rawChars, (DWORD)c->rawCharsLen, NULL, NULL)) return -1;
 #else
     if (RETRY(write(l->fd, c->rawChars, c->rawCharsLen * sizeof(char_t))) == -1) return -1;
 #endif
@@ -866,7 +892,7 @@ static int writeLine(struct linenoiseState *l, struct linenoiseString *s, size_t
     else end_pos = pos + count;
     len = getCharAt(s, end_pos) - buf;
 #ifdef _WIN32
-    WriteConsole(l->fdout, buf, (DWORD)len, &written, NULL);
+    if (!WriteConsole(l->fdout, buf, (DWORD)len, &written, NULL)) return -1;
 #else
     if (RETRY(write(l->fd, buf, len * sizeof(char_t))) == -1) return -1;
 #endif
@@ -907,7 +933,7 @@ static int completitionCompare(const void *first, const void *second)
 /* Parse line into linenoiseString. */
 int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 {
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
     const char_t *charstart = src;
     const char_t *charend = src;
     const char_t *srcend = src + srclen;
@@ -957,7 +983,7 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
     dest->buf[newbytelen] = '\0';
     dest->charlen = newcharlen;
     dest->bytelen = newbytelen;
-    errno = saved_errno;
+    setError(saved_errno);
     return 0;
 }
 
@@ -1037,7 +1063,7 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     char_t *copy_text = NULL;
 
     if (suggestion == NULL || completed_text == NULL || *suggestion == '\0' || *completed_text == '\0') {
-        errno = EINVAL;
+        setError(ERROR_EINVAL);
         return -1;
     }
 
@@ -1064,7 +1090,7 @@ error_cleanup:
         free(lc->cvec[i].text);
     free(lc->cvec);
     lc->cvec = NULL;
-    errno = ENOMEM;
+    setError(ERROR_ENOMEM);
     result = -1;
 
 end:
@@ -1117,7 +1143,7 @@ int setPrompt(struct linenoiseState *l, const char_t *prompt)
             if (prompt != NULL) {
                 l->prompt.buf = _tcsdup(prompt);
                 if (l->prompt.buf == NULL) {
-                    errno = ENOMEM;
+                    setError(ERROR_ENOMEM);
                     return -1;
                 }
             }
@@ -1359,14 +1385,14 @@ static int prepareCustomOutputClearLine(struct linenoiseState *l)
 int linenoiseCustomOutput()
 {
     int result = 0;
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
 
     if (ensureInitialized(&state) == -1) return -1;
     if (!state.is_supported) return 0;
 
     result = prepareCustomOutputClearLine(&state);
     disableRawMode(&state);
-    errno = saved_errno;
+    setError(saved_errno);
     return result;
 }
 
@@ -1410,7 +1436,7 @@ static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
         s->buf = newbuf != NULL ? newbuf : s->buf;
         s->charindex = newcharindex != NULL ? newcharindex : s->charindex;
         if (newbuf == NULL || newcharindex == NULL) {
-            errno = ENOMEM;
+            setError(ERROR_ENOMEM);
             return -1;
         }
         s->buf = newbuf;
@@ -1630,7 +1656,6 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
     while (keep_going) {
         DWORD numEvents = 0;
         {
-
             HANDLE handles[] = {l->fdin, l->wakeup_event};
             DWORD result;
             (void) revertSignals(l);
@@ -1640,11 +1665,11 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
                 GetNumberOfConsoleInputEvents(l->fdin, &numEvents);
                 assert(numEvents > 0);
             } else if (result == WAIT_OBJECT_0 + 1) {
-                errno = EINTR;
+                setError(ERROR_ERETRY);
                 nread = -1;
                 keep_going = false;
             } else {
-                errno = EAGAIN;
+                setError(ERROR_EAGAIN);
                 nread = -1;
                 keep_going = false;
             }
@@ -1659,7 +1684,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
                     switch (record.EventType)
                     {
                     case WINDOW_BUFFER_SIZE_EVENT:
-                        errno = EINTR;
+                        setError(ERROR_ERETRY);
                         nread = -1;
                         keep_going = false;
                         updateSize();
@@ -1821,8 +1846,8 @@ const linenoiseChar *readChar(struct linenoiseState *l)
     }
 
     while (c->unicodeChar == RCS_NONE
-            || (c->unicodeChar == RCS_ERROR && errno == EINTR)) {
-        int saved_errno;
+            || (c->unicodeChar == RCS_ERROR && getError() == ERROR_ERETRY)) {
+        errno_t saved_errno;
 
         if (l->needs_refresh) {
             if (refreshLine(l) == -1) return &CHAR_ERROR;
@@ -1850,7 +1875,7 @@ const linenoiseChar *readChar(struct linenoiseState *l)
             c = readRawChar(l);
         }
 
-        saved_errno = errno;
+        saved_errno = getError();
 
         if (l->needs_refresh) {
             if (refreshLine(l) == -1) return &CHAR_ERROR;
@@ -1890,7 +1915,7 @@ const linenoiseChar *readChar(struct linenoiseState *l)
             }
         }
 #endif
-        errno = saved_errno;
+        setError(saved_errno);
 
 #ifndef _WIN32
         if (c->unicodeChar > RCS_NONE) {
@@ -2060,7 +2085,7 @@ int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
         free(history[history_len - 1 - l->history_index]);
         history[history_len - 1 - l->history_index] = _tcsdup(l->line.buf);
         if (history[history_len - 1 - l->history_index] == NULL) {
-            errno = ENOMEM;
+            setError(ERROR_ENOMEM);
             return -1;
         }
     }
@@ -2399,7 +2424,7 @@ static enum LinenoiseResult linenoiseCompletion(struct linenoiseState *l) {
                 if (enableRawMode(l) == -1) return LR_ERROR;
 
                 if (l->comp.len > 0 && l->comp.cvec == NULL) {
-                    errno = ENOMEM;
+                    setError(ERROR_ENOMEM);
                     return LR_ERROR;
                 }
                 l->comp.is_initialized = true;
@@ -2430,7 +2455,7 @@ int setSearchPrompt(struct linenoiseState *l)
     size_t promptlen = l->hist_search.text.bytelen + 22 + 1;
     char_t* newprompt = calloc(sizeof(char_t), promptlen);
     if (newprompt == NULL) {
-        errno = ENOMEM;
+        setError(ERROR_ENOMEM);
         return -1;
     }
     if (l->hist_search.text.buf != NULL)
@@ -2591,12 +2616,12 @@ static enum LinenoiseResult linenoiseHistorySearch(struct linenoiseState *l)
 static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
     bool gotBlocked;
     enum LinenoiseResult result = LR_CONTINUE;
-    int savederrno;
+    int saved_errno;
 
     if (l->is_closed) {
         return LR_CLOSED;
     } else if (l->line.buflen == 0) {
-        errno = EINVAL;
+        setError(ERROR_EINVAL);
         return LR_ERROR;
     }
 
@@ -2620,12 +2645,12 @@ static enum LinenoiseResult linenoiseRaw(struct linenoiseState *l) {
         }
     }
 
-    savederrno = errno;
+    saved_errno = getError();
 
     if (!l->is_async) disableRawMode(l);
     if (gotBlocked) revertSignals(l);
 
-    errno = savederrno;
+    setError(saved_errno);
     return result;
 }
 
@@ -2704,7 +2729,7 @@ int linenoiseCleanup()
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
 char_t *linenoise() {
-    int saved_errno = errno;
+    errno_t saved_errno = getError();
     if (ensureInitialized(&state) == -1) return NULL;
 
     if (!state.is_supported) {
@@ -2713,7 +2738,7 @@ char_t *linenoise() {
         char_t* copy;
 
         if (state.is_cancelled) {
-            errno = EINTR;
+            setError(ERROR_ECANCELLED);
             return NULL;
         }
 
@@ -2721,13 +2746,13 @@ char_t *linenoise() {
         fflush(stdout);
         if (_fgetts(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) {
             if (state.is_cancelled) {
-                errno = EINTR;
+                setError(ERROR_ECANCELLED);
             }
             return NULL;
         }
 
         if (state.is_cancelled) {
-            errno = EINTR;
+            setError(ERROR_ECANCELLED);
             return NULL;
         }
 
@@ -2737,7 +2762,7 @@ char_t *linenoise() {
             buf[len] = '\0';
         }
         copy = _tcsdup(buf);
-        if (copy == NULL) errno = ENOMEM;
+        if (copy == NULL) setError(ERROR_ENOMEM);
         return copy;
     } else {
         enum LinenoiseResult result = linenoiseRaw(&state);
@@ -2748,17 +2773,17 @@ char_t *linenoise() {
             _tprintf(_T("\r\n"));
             if (state.is_async)
                 disableRawMode(&state);
-            errno = EINTR;
+            setError(ERROR_ECANCELLED);
             return NULL;
         } else if (result == LR_CLOSED) {
             resetOnNewline(&state);
             _tprintf(_T("\r\n"));
             if (state.line.bytelen == 0) {
-                errno = 0;
+                setError(ERROR_NONE);
                 return NULL;
             }
         } else if (result == LR_ERROR) {
-            if (errno != EWOULDBLOCK && errno != EAGAIN) {
+            if (getError() != ERROR_EWOULDBLOCK && getError() != ERROR_EAGAIN) {
                 resetOnNewline(&state);
                 _tprintf(_T("\r\n"));
                 if (state.is_async)
@@ -2780,8 +2805,8 @@ char_t *linenoise() {
         clearString(&state.line);
         state.pos = 0;
 
-        if (copy == NULL) errno = ENOMEM;
-        else errno = saved_errno;
+        if (copy == NULL) setError(ERROR_ENOMEM);
+        else setError(saved_errno);
 
         return copy;
     }
@@ -2960,9 +2985,13 @@ int linenoiseHistorySave(char_t *filename) {
 
 #ifdef _WIN32
 #ifdef _UNICODE
-    errno = _tfopen_s(&fp, filename, _T("w,ccs=UTF-8"));
+    errno_t error = _tfopen_s(&fp, filename, _T("w,ccs=UTF-8"));
+    if (error != 0)
+        setError(_doserrno);
 #else
-    errno = _tfopen_s(&fp, filename, _T("w"));
+    errno_t error = _tfopen_s(&fp, filename, _T("w"));
+    if (error != 0)
+        setError(_doserrno);
 #endif
 #else
     fp = fopen(filename, "w");
@@ -2985,9 +3014,13 @@ int linenoiseHistoryLoad(char_t *filename) {
 
 #ifdef _WIN32
 #ifdef _UNICODE
-    errno = _tfopen_s(&fp, filename, _T("r,ccs=UTF-8"));
+    errno_t error = _tfopen_s(&fp, filename, _T("r,ccs=UTF-8"));
+    if (error != 0)
+        setError(_doserrno);
 #else
-    errno = _tfopen_s(&fp, filename, _T("r"));
+    errno_t error = _tfopen_s(&fp, filename, _T("r"));
+    if (error != 0)
+        setError(_doserrno);
 #endif
 #else
     fp = fopen(filename, "r");
