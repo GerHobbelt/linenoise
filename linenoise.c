@@ -184,8 +184,12 @@
 #define unicode_t int32_t
 #endif
 
+#ifdef _WIN32
+#define RETRY(expression) (expression)
+#else
 #define RETRY(expression) \
 	( { int result = (expression); while (result == -1 && getError() == ERROR_ERETRY ) result = (expression); result; } )
+#endif
 
 #ifndef CTRL
 #define CTRL(c) ((c) & 0x1f)
@@ -754,12 +758,8 @@ int linenoiseClearScreen(void) {
 /* Beep, used for completion when there is nothing to complete or when all
  * the choices were already shown. */
 static int linenoiseBeep(void) {
-#ifdef _WIN32
-    Beep(800, 200);
-#else
     if (fprintf(stderr, "\x7") < 0) return -1;
     if (RETRY(fflush(stderr)) == -1) return -1;
-#endif
     return 0;
 }
 
