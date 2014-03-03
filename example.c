@@ -264,13 +264,16 @@ int main(int argc, char **argv) {
             && found_error != EINTR
 #endif
         ) {
-		char buf[1024];
+        TCHAR buf[1024];
+        buf[0] = _T('\0');
 #ifdef _WIN32
-		strerror_s(buf, sizeof(buf), found_error);
+        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, found_error,
+            GetUserDefaultLangID(), buf, sizeof(buf)/sizeof(TCHAR), NULL);
 #else
-		strerror_r(found_error, buf, sizeof(buf));
+        strerror_r(found_error, buf, sizeof(buf));
 #endif
-        printf("Error: %s\n", buf);
+        buf[1023] = _T('\0');
+        _tprintf(_T("Error: %s\n"), buf);
     }
     return 0;
 }
