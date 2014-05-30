@@ -1069,12 +1069,12 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     }
 
     len = _tcslen(suggestion);
-    copy_suggestion = malloc((len+1)*sizeof(char_t));
+    copy_suggestion = (char_t*) malloc((len+1)*sizeof(char_t));
     copy_text = _tcsdup(completed_text);
     if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
     memcpy(copy_suggestion,suggestion,(len+1)*sizeof(char_t));
     if (lc->len == 0 || lc->cvec != NULL) {
-        linenoiseSingleCompletion *newcvec = realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
+        linenoiseSingleCompletion *newcvec = (linenoiseSingleCompletion *) realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
         if (newcvec == NULL) goto error_cleanup;
         lc->cvec = newcvec;
         lc->cvec[lc->len].suggestion = copy_suggestion;
@@ -1430,10 +1430,10 @@ static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
         return 0;
 
     if (s->buflen < newlen) {
-        char_t *newbuf = s->buf ? realloc(s->buf, newlen*sizeof(char_t)) :
-                                  malloc(newlen*sizeof(char_t));
-        charpos_t *newcharindex = s->charindex ? realloc(s->charindex, newlen*sizeof(charpos_t)) :
-                                                 malloc(newlen*sizeof(charpos_t));
+        char_t *newbuf = s->buf ? (char_t *)realloc(s->buf, newlen*sizeof(char_t)) :
+                                  (char_t *)malloc(newlen*sizeof(char_t));
+        charpos_t *newcharindex = s->charindex ? (charpos_t *)realloc(s->charindex, newlen*sizeof(charpos_t)) :
+                                                 (charpos_t *)malloc(newlen*sizeof(charpos_t));
         s->buf = newbuf != NULL ? newbuf : s->buf;
         s->charindex = newcharindex != NULL ? newcharindex : s->charindex;
         if (newbuf == NULL || newcharindex == NULL) {
@@ -2386,7 +2386,7 @@ static enum LinenoiseResult linenoiseEdit(struct linenoiseState *l)
         }
         break;
     case CTRL('R'):     /* ctrl+r, search the history */
-        if (linenoiseEditUpdateHistoryEntry(l) == -1) return -1;
+        if (linenoiseEditUpdateHistoryEntry(l) == -1) return LR_ERROR;
         pushFrontChar(l, c);
         l->state = LS_HISTORY_SEARCH;
         return LR_CONTINUE;
@@ -2454,7 +2454,7 @@ int setSearchPrompt(struct linenoiseState *l)
 {
     int result = 0;
     size_t promptlen = l->hist_search.text.bytelen + 22 + 1;
-    char_t* newprompt = calloc(sizeof(char_t), promptlen);
+    char_t* newprompt = (char_t*)calloc(sizeof(char_t), promptlen);
     if (newprompt == NULL) {
         setError(ERROR_ENOMEM);
         return -1;
@@ -2801,7 +2801,7 @@ char_t *linenoise() {
         }
 
         /* Have some text */
-        copy = malloc((state.line.bytelen + 1) * sizeof(char_t));
+        copy = (char_t*)malloc((state.line.bytelen + 1) * sizeof(char_t));
         if (copy != NULL) {
             memcpy(copy, state.line.buf, state.line.bytelen * sizeof(char_t));
             copy[state.line.bytelen] = '\0';
@@ -2934,7 +2934,7 @@ int linenoiseHistoryAdd(const char_t *line) {
 
     if (history_max_len == 0) return 0;
     if (history == NULL) {
-        history = malloc(sizeof(char_t*)*history_max_len);
+        history = (char_t **)malloc(sizeof(char_t*)*history_max_len);
         if (history == NULL) return 0;
         memset(history,0,(sizeof(char_t*)*history_max_len));
     }
@@ -2955,14 +2955,14 @@ int linenoiseHistoryAdd(const char_t *line) {
  * just the latest 'len' elements if the new history length value is smaller
  * than the amount of items already inside the history. */
 int linenoiseHistorySetMaxLen(int len) {
-    char_t **new;
+    char_t **new_history;
 
     if (len < 1) return 0;
     if (history) {
         int tocopy = history_len;
 
-        new = malloc(sizeof(char_t*)*len);
-        if (new == NULL) return 0;
+        new_history = (char_t **)malloc(sizeof(char_t*)*len);
+        if (new_history == NULL) return 0;
 
         /* If we can't copy everything, free the elements we'll not use. */
         if (len < tocopy) {
@@ -2971,10 +2971,10 @@ int linenoiseHistorySetMaxLen(int len) {
             for (j = 0; j < tocopy-len; j++) free(history[j]);
             tocopy = len;
         }
-        memset(new,0,sizeof(char_t*)*len);
-        memcpy(new,history+(history_len-tocopy), sizeof(char_t*)*tocopy);
+        memset(new_history,0,sizeof(char_t*)*len);
+        memcpy(new_history,history+(history_len-tocopy), sizeof(char_t*)*tocopy);
         free(history);
-        history = new;
+        history = new_history;
     }
     history_max_len = len;
     if (history_len > history_max_len)
