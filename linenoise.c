@@ -103,6 +103,9 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#ifdef __cplusplus_cli
+#include <vcclr.h>
+#endif
 #endif
 
 #include <assert.h>
@@ -231,6 +234,9 @@ static DWORD orig_inconsolemode;    /* In order to restore at exit. */
 static DWORD orig_outconsolemode;   /* In order to restore at exit. */
 static DWORD pending_console_event[16] = {0};
 static int pending_console_event_len = 0;
+#ifdef __cplusplus_cli
+delegate BOOL ConsoleHandler(DWORD CtrlType);
+#endif
 #else
 static struct termios orig_termios; /* In order to restore at exit.*/
 #endif
@@ -343,6 +349,10 @@ struct linenoiseState {
     HANDLE fdin;        /* Terminal file descriptor. */
     HANDLE fdout;       /* Terminal file descriptor. */
     HANDLE wakeup_event;    /* Wake-up event for console signals. */
+#ifdef __cplusplus_cli
+    gcroot<ConsoleHandler^> *console_handler_ptr;
+    System::IntPtr console_handler_intptr;
+#endif
 #else
     int fd;             /* Terminal file descriptor. */
 #endif
@@ -586,7 +596,7 @@ static int enableRawMode(struct linenoiseState *l) {
     if (!rawmode) {
 #ifdef _WIN32
         if (!GetConsoleMode(l->fdin, &orig_inconsolemode)) return -1;
-        if (!SetConsoleMode(l->fdin, ENABLE_PROCESSED_INPUT | ENABLE_WINDOW_INPUT)) return -1;
+        if (!SetConsoleMode(l->fdin, ENABLE_WINDOW_INPUT)) return -1;
         if (!GetConsoleMode(l->fdout, &orig_outconsolemode)) return -1;
         if (!mlmode) {
             if (!SetConsoleMode(l->fdout, orig_outconsolemode & ~ENABLE_WRAP_AT_EOL_OUTPUT)) return -1;
@@ -669,7 +679,11 @@ static bool setSize(struct linenoiseState *l) {
 }
 
 #ifdef _WIN32
+#ifdef __cplusplus_cli
+static BOOL console_handler(DWORD win_event)
+#else
 static BOOL WINAPI console_handler(DWORD win_event)
+#endif
 {
     if (win_event == CTRL_C_EVENT || win_event == CTRL_BREAK_EVENT) {
         if (pending_console_event_len <
@@ -690,7 +704,11 @@ static bool blockSignals(struct linenoiseState *ls) {
     if (!ls->signals_blocked) {
         errno_t old_errno = getError();
 #ifdef _WIN32
+#ifdef __cplusplus_cli
+        SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(ls->console_handler_intptr.ToPointer()), TRUE);
+#else
         SetConsoleCtrlHandler(console_handler, TRUE);
+#endif
 #else
         sigset_t newset;
         sigemptyset(&newset);
@@ -714,7 +732,11 @@ static bool revertSignals(struct linenoiseState *ls) {
         errno_t old_errno = getError();
 #ifdef _WIN32
         int i;
+#ifdef __cplusplus_cli
+        SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(ls->console_handler_intptr.ToPointer()), FALSE);
+#else
         SetConsoleCtrlHandler(console_handler, FALSE);
+#endif
         for (i = 0; i < pending_console_event_len; i++)
             GenerateConsoleCtrlEvent(pending_console_event[i], 0);
         pending_console_event_len = 0;
@@ -2863,6 +2885,12 @@ static int initialize(struct linenoiseState *l)
     l->fdin = GetStdHandle(STD_INPUT_HANDLE);
     l->fdout = GetStdHandle(STD_OUTPUT_HANDLE);
     l->wakeup_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+#ifdef __cplusplus_cli
+    l->console_handler_ptr = new gcroot<ConsoleHandler^>(gcnew ConsoleHandler(console_handler));
+    l->console_handler_intptr =
+        System::Runtime::InteropServices::Marshal::GetFunctionPointerForDelegate(
+            static_cast<ConsoleHandler^>(*(l->console_handler_ptr)));
+#endif
 #else
     l->fd = STDIN_FILENO;
 #endif
@@ -2894,6 +2922,9 @@ static void freeState()
 #ifdef _WIN32
     CloseHandle(state.wakeup_event);
     freeString(&state.rawChar.tempString);
+#ifdef __cplusplus_cli
+    delete state.console_handler_ptr;
+#endif
 #else
     if (state.ansi.ansi_timer_created) {
         timer_delete(state.ansi.ansi_timer);

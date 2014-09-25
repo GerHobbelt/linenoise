@@ -6,6 +6,9 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#ifdef __cplusplus_cli
+#include <vcclr.h>
+#endif
 #endif
 
 #include <stdio.h>
@@ -87,7 +90,12 @@ static void sigalrm_handler(int signum)
 #endif
 
 #ifdef _WIN32
+#ifdef __cplusplus_cli
+delegate BOOL ConsoleHandler(DWORD CtrlType);
+static BOOL console_handler(DWORD win_event)
+#else
 static BOOL WINAPI console_handler(DWORD win_event)
+#endif
 {
 	switch (win_event)
 	{
@@ -118,6 +126,16 @@ int main(int argc, char **argv) {
     int found_error = 0;
 #endif
 
+#ifdef __cplusplus_cli
+    gcroot<ConsoleHandler^> *console_handler_ptr;
+    System::IntPtr console_handler_intptr;
+
+    console_handler_ptr = new gcroot<ConsoleHandler^>(gcnew ConsoleHandler(console_handler));
+    console_handler_intptr =
+        System::Runtime::InteropServices::Marshal::GetFunctionPointerForDelegate(
+            static_cast<ConsoleHandler^>(*console_handler_ptr));
+#endif
+
     setlocale(LC_CTYPE, "");
 
     /* Parse options, with --multiline we enable multi line editing. */
@@ -145,8 +163,12 @@ int main(int argc, char **argv) {
     setlocale(LC_CTYPE, "");
 
 #ifdef _WIN32
-	wakeup_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-	SetConsoleCtrlHandler(console_handler, TRUE);
+    wakeup_event = CreateEventA(NULL, FALSE, FALSE, NULL);
+#ifdef __cplusplus_cli
+    SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(console_handler_intptr.ToPointer()), TRUE);
+#else
+    SetConsoleCtrlHandler(console_handler, TRUE);
+#endif
 #else
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigint_handler;
@@ -279,5 +301,16 @@ int main(int argc, char **argv) {
         buf[1023] = _T('\0');
         _tprintf(_T("Error: %s\n"), buf);
     }
-    return 0;
+
+#ifdef _WIN32
+#ifdef __cplusplus_cli
+    SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(console_handler_intptr.ToPointer()), FALSE);
+    delete console_handler_ptr;
+#else
+    SetConsoleCtrlHandler(console_handler, FALSE);
+#endif
+    CloseHandle(wakeup_event);
+#endif
+
+	return 0;
 }
