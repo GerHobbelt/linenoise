@@ -237,6 +237,10 @@ int main(int argc, char **argv) {
                 _tprintf(_T("echo: '%s'\n"), line);
                 linenoiseHistoryAdd(line); /* Add to the history. */
                 linenoiseHistorySave(_T("history.txt")); /* Save the history on disk. */
+                if (!_tcsncmp(line,_T("exit"),4) && line[4] == _T('\0') ||
+                    !_tcsncmp(line,_T("quit"),4) && line[4] == _T('\0')) {
+                    do_exit = true;
+                }
             } else if (!_tcsncmp(line,_T("/historylen"),11)) {
                 /* The "/historylen" command will change the history len. */
                 int len = _tstoi(line+11);
