@@ -1715,7 +1715,6 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
                     case KEY_EVENT:
                         {
                             int countRead = 0;
-                            WORD scanCode = record.Event.KeyEvent.wVirtualScanCode;
                             if (!record.Event.KeyEvent.bKeyDown) {
                                 continue;
                             }
