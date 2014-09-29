@@ -1063,7 +1063,7 @@ static int completeLine(struct linenoiseState *ls) {
             if (real_index < ls->comp.len) {
                 had_eol = false;
                 if (column_align > 0)
-                    _tprintf(_T("%-*s"), (int)column_align, "");
+                    _tprintf(_T("%-*s"), (int)column_align, _T(""));
                 _tprintf(_T("%s"), ls->comp.cvec[real_index].suggestion);
                 column_align = colSize - ls->comp.cvec[real_index].suggestion_charlen;
                 if ((i % cols) == (cols - 1)) {
