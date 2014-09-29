@@ -108,19 +108,21 @@
 #endif
 #endif
 
-#include <assert.h>
-#include <fcntl.h>
-#include <stdlib.h>
 #include <stdio.h>
-#include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <wchar.h>
+#include "linenoise.h"
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <time.h>
 #include <locale.h>
-#include <signal.h>
-#include <wchar.h>
-#include "linenoise.h"
+#endif
 
 #undef uchar_t
 #undef char_t
@@ -128,8 +130,6 @@
 #undef unicode_t
 
 #ifdef _WIN32
-#include <io.h>
-
 #define setError(x) SetLastError(x)
 #define getError() GetLastError()
 #define errno_t DWORD
@@ -149,7 +149,7 @@
 #define char_t TCHAR
 #define charpos_t size_t
 #define unicode_t __int32
-#else
+#else // _WIN32
 #define setError(x) errno = x
 #define getError() errno
 #define errno_t int
@@ -185,7 +185,7 @@
 #define char_t char
 #define charpos_t size_t
 #define unicode_t int32_t
-#endif
+#endif // _WIN32
 
 #ifdef _WIN32
 #define RETRY(expression) (expression)
@@ -1686,7 +1686,6 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
             (void) blockSignals(l);
             if (result == WAIT_OBJECT_0) {
                 GetNumberOfConsoleInputEvents(l->fdin, &numEvents);
-                assert(numEvents > 0);
             } else if (result == WAIT_OBJECT_0 + 1) {
                 setError(ERROR_ERETRY);
                 nread = -1;
@@ -3014,7 +3013,7 @@ int linenoiseHistorySetMaxLen(int len) {
 
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
-int linenoiseHistorySave(char_t *filename) {
+int linenoiseHistorySave(const char_t *filename) {
     FILE *fp;
     int j;
 
@@ -3043,7 +3042,7 @@ int linenoiseHistorySave(char_t *filename) {
  *
  * If the file exists and the operation succeeded 0 is returned, otherwise
  * on error -1 is returned. */
-int linenoiseHistoryLoad(char_t *filename) {
+int linenoiseHistoryLoad(const char_t *filename) {
     char_t buf[LINENOISE_LINE_INIT_MAX_AND_GROW];
     FILE *fp;
 

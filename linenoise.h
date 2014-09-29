@@ -206,7 +206,7 @@ int linenoiseHistorySetMaxLen(int len);
  * @param filename history file name
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseHistorySave(char_t *filename);
+int linenoiseHistorySave(const char_t *filename);
 
 /**
  * Loads the history from the file.
@@ -214,7 +214,7 @@ int linenoiseHistorySave(char_t *filename);
  * @param filename history file name
  * @return Returns 0 on success, or -1 on error. See errno for details.
  */
-int linenoiseHistoryLoad(char_t *filename);
+int linenoiseHistoryLoad(const char_t *filename);
 
 /**
  * Clears the screen.
