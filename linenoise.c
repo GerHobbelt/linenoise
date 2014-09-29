@@ -208,12 +208,13 @@ typedef struct linenoiseSingleCompletion {
     char_t *suggestion; /* Suggestion to display. */
     char_t *text;       /* Fully completed text. */
     charpos_t pos;      /* Cursor position. */
+    size_t  suggestion_charlen; /* Length of suggestion string when displayed. */
 } linenoiseSingleCompletion;
 
 struct linenoiseCompletions {
   bool is_initialized;  /* True if completions are initialized. */
   size_t len;           /* Current number of completions. */
-  size_t max_strlen;    /* Maximum suggestion text length. */
+  size_t max_charlen;   /* Maximum suggestion text length. */
   linenoiseSingleCompletion *cvec;  /* Array of completions. */
 };
 
@@ -938,7 +939,7 @@ static void freeCompletions(struct linenoiseState *ls) {
     ls->comp.is_initialized = false;
     ls->comp.cvec = NULL;
     ls->comp.len = 0;
-    ls->comp.max_strlen = 0;
+    ls->comp.max_charlen = 0;
 }
 
 /* Compare completions, used for Quick sort. */
@@ -1013,8 +1014,7 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 /* Replace line with unparsed text (which is parsed). */
 static int replaceLine(struct linenoiseState *l, char_t *text, size_t len)
 {
-    if (ensureBufLen(&l->line, len+1) == -1) return -1;
-    parseLine(text, len, &l->line);
+    if (parseLine(text, len, &l->line) == -1) return -1;
     l->pos = l->line.charlen;
     return 0;
 }
@@ -1042,26 +1042,44 @@ static int completeLine(struct linenoiseState *ls) {
         size_t cols;
         size_t rows;
         size_t i;
+        size_t column_align;
+        bool had_eol = false;
 
         /* Multiple choices - sort them and print */
         if (prepareCustomOutputOnNewLine(ls) == -1) return -1;
 
         qsort(ls->comp.cvec, ls->comp.len, sizeof(linenoiseSingleCompletion), completitionCompare);
-        colSize = ls->comp.max_strlen + LINENOISE_COL_SPACING;
+        colSize = ls->comp.max_charlen + LINENOISE_COL_SPACING;
         cols = ls->cols / colSize;
         if (cols == 0)
             cols = 1;
         rows = (ls->comp.len + cols - 1) / cols;
+        cols = (ls->comp.len + rows - 1) / rows;
 
-        for (i = 0; i < ls->comp.len; i++)
-        {
+        i = 0;
+        column_align = 0;
+        while (i < (rows * cols)) {
             size_t real_index = (i % cols) * rows + i / cols;
-            if (real_index < ls->comp.len)
-                _tprintf(_T("%-*s"), (int)colSize, ls->comp.cvec[real_index].suggestion);
-            if ((i % cols) == (cols - 1))
+            if (real_index < ls->comp.len) {
+                had_eol = false;
+                if (column_align > 0)
+                    _tprintf(_T("%-*s"), (int)column_align, "");
+                _tprintf(_T("%s"), ls->comp.cvec[real_index].suggestion);
+                column_align = colSize - ls->comp.cvec[real_index].suggestion_charlen;
+                if ((i % cols) == (cols - 1)) {
+                    had_eol = true;
+                    column_align = 0;
+                    _tprintf(_T("\r\n"));
+                }
+                ++i;
+            } else {
+                had_eol = true;
+                column_align = 0;
                 _tprintf(_T("\r\n"));
+                i = ((i + cols) / cols) * cols;
+            }
         }
-        if ((i % cols) != 0)
+        if (!had_eol)
             _tprintf(_T("\r\n"));
         if (refreshLine(ls) == -1) return -1;
     }
@@ -1081,6 +1099,7 @@ void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
 int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, const char_t *completed_text, charpos_t pos) {
     int result = 0;
     size_t len;
+    size_t charlen;
     size_t i;
     char_t *copy_suggestion = NULL;
     char_t *copy_text = NULL;
@@ -1091,21 +1110,32 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     }
 
     len = _tcslen(suggestion);
+    charlen = len;
     copy_suggestion = (char_t*) malloc((len+1)*sizeof(char_t));
     copy_text = _tcsdup(completed_text);
-    if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
+    if (copy_suggestion == NULL || copy_text == NULL) goto nomem_error_cleanup;
     memcpy(copy_suggestion,suggestion,(len+1)*sizeof(char_t));
     if (lc->len == 0 || lc->cvec != NULL) {
-        linenoiseSingleCompletion *newcvec = (linenoiseSingleCompletion *) realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));;
-        if (newcvec == NULL) goto error_cleanup;
+        linenoiseString line = { 0 };
+        linenoiseSingleCompletion *newcvec = (linenoiseSingleCompletion *) realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));
+        if (newcvec == NULL) goto nomem_error_cleanup;
+        if (parseLine(suggestion, len, &line) == -1) goto error_cleanup;
+
+        charlen = line.charlen;
+
         lc->cvec = newcvec;
         lc->cvec[lc->len].suggestion = copy_suggestion;
         lc->cvec[lc->len].text = copy_text;
         lc->cvec[lc->len].pos = pos;
+        lc->cvec[lc->len].suggestion_charlen = charlen;
     }
     goto end;
 
+nomem_error_cleanup:
+    setError(ERROR_ENOMEM);
 error_cleanup:
+    result = -1;
+
     free(copy_suggestion);
     free(copy_text);
 
@@ -1113,12 +1143,10 @@ error_cleanup:
         free(lc->cvec[i].text);
     free(lc->cvec);
     lc->cvec = NULL;
-    setError(ERROR_ENOMEM);
-    result = -1;
 
 end:
-    if (len > lc->max_strlen)
-        lc->max_strlen = len;
+    if (charlen > lc->max_charlen)
+        lc->max_charlen = charlen;
     lc->len++;
     return result;
 }
