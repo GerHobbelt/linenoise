@@ -972,11 +972,11 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
     dest->charindex[0] = 0;
     while (charend < srcend) {
 #if !defined(_WIN32)
-        int found = mbrlen(charend, 1, &state);
+        size_t found = mbrlen(charend, 1, &state);
 #elif !defined(_UNICODE)
-        int found = 1;
+        size_t found = 1;
 #else   /* _WIN32 && _UNICODE */
-        int found;
+        size_t found;
         if (*charstart < 0xD800 || *charstart > 0xDFFF) {
             found = 1;
         } else if (*charstart <= 0xDBFF && charstart+1 < srcend
@@ -1286,7 +1286,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
     size_t j;
 
     /* Update maxrows if needed. */
-    if (rows > (int)l->maxrows) l->maxrows = rows;
+    if (rows > l->maxrows) l->maxrows = rows;
 
 #ifdef LN_DEBUG
     FILE *fp = fopen("/tmp/debug.txt","a");
@@ -1354,7 +1354,7 @@ static int refreshMultiLine(struct linenoiseState *l) {
         if (cursorSetColumn(l, 0) == -1) return -1;
 
         rows++;
-        if (rows > (int)l->maxrows) l->maxrows = rows;
+        if (rows > l->maxrows) l->maxrows = rows;
     }
 
     /* Move cursor to right position. */
