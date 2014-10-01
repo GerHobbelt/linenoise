@@ -1103,6 +1103,7 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     size_t i;
     char_t *copy_suggestion = NULL;
     char_t *copy_text = NULL;
+    linenoiseString line = { 0 };
 
     if (suggestion == NULL || completed_text == NULL || *suggestion == '\0' || *completed_text == '\0') {
         setError(ERROR_EINVAL);
@@ -1116,7 +1117,6 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     if (copy_suggestion == NULL || copy_text == NULL) goto nomem_error_cleanup;
     memcpy(copy_suggestion,suggestion,(len+1)*sizeof(char_t));
     if (lc->len == 0 || lc->cvec != NULL) {
-        linenoiseString line = { 0 };
         linenoiseSingleCompletion *newcvec = (linenoiseSingleCompletion *) realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));
         if (newcvec == NULL) goto nomem_error_cleanup;
         if (parseLine(suggestion, len, &line) == -1) goto error_cleanup;
@@ -1145,6 +1145,7 @@ error_cleanup:
     lc->cvec = NULL;
 
 end:
+    freeString(&line);
     if (charlen > lc->max_charlen)
         lc->max_charlen = charlen;
     lc->len++;
