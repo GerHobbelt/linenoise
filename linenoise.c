@@ -954,7 +954,12 @@ static int completitionCompare(const void *first, const void *second)
 #endif
 }
 
-inline bool parseChar(const char_t **charstart, const char_t **charend, const char_t *srcend, mbstate_t *state)
+#ifdef _MSC_VER
+__forceinline
+#else
+__inline__ __attribute__((always_inline))
+#endif
+bool parseChar(const char_t **charstart, const char_t **charend, const char_t *srcend, mbstate_t *state)
 {
     while (*charend < srcend) {
 #if !defined(_WIN32)
@@ -995,11 +1000,11 @@ int copyString(const char_t *src, size_t srclen, char_t *dest, size_t *destcharl
     const char_t *srcend = src + srclen;
     char_t *destend = dest;
     size_t charlen = 0;
+    bool found = false;
 
     mbstate_t state;
     memset(&state, 0, sizeof(state));
 
-    bool found = false;
     do {
         found = parseChar(&charstart, &charend, srcend, &state);
         if (found)
@@ -1028,13 +1033,13 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
     size_t newbytelen = 0;
     size_t newcharlen = 0;
     mbstate_t state;
+    bool found = false;
 
     if (ensureBufLen(dest, srclen+1) == -1) return -1;
 
     memset(&state, 0, sizeof(state));
 
     dest->charindex[0] = 0;
-    bool found = false;
     do {
         found = parseChar(&charstart, &charend, srcend, &state);
         if (found)
