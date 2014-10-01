@@ -752,7 +752,7 @@ static bool revertSignals(struct linenoiseState *ls) {
 }
 
 /* Clear the screen. Used to handle ctrl+l */
-int clearScreen(struct linenoiseState *ls) {
+static int clearScreen(struct linenoiseState *ls) {
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO info;
     COORD topleft = { 0, 0 };
@@ -959,7 +959,7 @@ __forceinline
 #else
 __inline__ __attribute__((always_inline))
 #endif
-bool parseChar(const char_t **charstart, const char_t **charend, const char_t *srcend, mbstate_t *state)
+static bool parseChar(const char_t **charstart, const char_t **charend, const char_t *srcend, mbstate_t *state)
 {
     while (*charend < srcend) {
 #if !defined(_WIN32)
@@ -993,7 +993,7 @@ bool parseChar(const char_t **charstart, const char_t **charend, const char_t *s
     return false;
 }
 
-int copyString(const char_t *src, size_t srclen, char_t *dest, size_t *destcharlen)
+static int copyString(const char_t *src, size_t srclen, char_t *dest, size_t *destcharlen)
 {
     const char_t *charstart = src;
     const char_t *charend = src;
@@ -1024,7 +1024,7 @@ int copyString(const char_t *src, size_t srclen, char_t *dest, size_t *destcharl
 }
 
 /* Parse line into linenoiseString. */
-int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
+static int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 {
     errno_t saved_errno = getError();
     const char_t *charstart = src;
@@ -1197,7 +1197,7 @@ end:
 /* =========================== Line editing ================================= */
 
 /* Get the prompt to be displayed. */
-linenoiseString *getPrompt(struct linenoiseState *l)
+static linenoiseString *getPrompt(struct linenoiseState *l)
 {
     if (l->tempprompt.buf != NULL) {
         return &l->tempprompt;
@@ -1207,7 +1207,7 @@ linenoiseString *getPrompt(struct linenoiseState *l)
 }
 
 /* Set the main prompt. */
-int setPrompt(struct linenoiseState *l, const char_t *prompt)
+static int setPrompt(struct linenoiseState *l, const char_t *prompt)
 {
     if (l->is_supported) {
         size_t promptLen = prompt != NULL ? _tcslen(prompt) : 0;
@@ -1248,7 +1248,7 @@ int setPrompt(struct linenoiseState *l, const char_t *prompt)
 
 /* Set or reset (in case of NULL argument) the temporary prompt, which has
  * priority over the main prompt. */
-int setTempPrompt(struct linenoiseState *l, const char_t *tempprompt)
+static int setTempPrompt(struct linenoiseState *l, const char_t *tempprompt)
 {
     size_t promptLen = tempprompt != NULL ? _tcslen(tempprompt) : 0;
     linenoiseString newPrompt = {NULL, NULL, 0, 0, 0};
@@ -1444,7 +1444,7 @@ static int refreshLine(struct linenoiseState *l) {
 }
 
 /* Reset the display state when moved to new line. */
-void resetOnNewline(struct linenoiseState *l)
+static void resetOnNewline(struct linenoiseState *l)
 {
     l->maxrows = 0;
     l->is_displayed = false;
@@ -1549,7 +1549,7 @@ static int ensureBufLen(struct linenoiseString *s, size_t requestedBufLen)
 #ifndef _WIN32
 /* Decode ANSI escape sequence.
  * Returns ReadCharSpecials or RCS_NONE in case unknown sequence is read. */
-const struct linenoiseChar *ansiDecode(struct linenoiseAnsi *la)
+static const struct linenoiseChar *ansiDecode(struct linenoiseAnsi *la)
 {
     if (la->ansi_sequence_meaning == ASM_CSI) {
         switch (la->ansi_final)
@@ -1601,7 +1601,7 @@ const struct linenoiseChar *ansiDecode(struct linenoiseAnsi *la)
 
 /* Add ANSI character sequence and process the state.
  * Return true in case of success, false on failure. */
-bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
+static bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
 {
     /* Ignore DEL */
     if (c->unicodeChar == CERASE)
@@ -1666,7 +1666,7 @@ bool ansiAddCharacter(struct linenoiseAnsi *la, const struct linenoiseChar *c)
 
 /* Add character or ReadCharSpecials value to be first returned by next call to
  * readChar(). Returns true if successful, false if argument was RCS_NONE. */
-bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
+static bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
 {
     if (c->unicodeChar != RCS_NONE) {
         if (l->read_back_char_len == READ_BACK_MAX_LEN)
@@ -1683,7 +1683,7 @@ bool pushFrontChar(struct linenoiseState *l, const linenoiseChar *c)
 }
 
 /* Push back string of 'c' characters to be read. */
-bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int count)
+static bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int count)
 {
     int i;
     const struct linenoiseChar *pc = c;
@@ -1705,7 +1705,7 @@ bool pushBackChars(struct linenoiseState *l, const struct linenoiseChar *c, int 
 }
 
 /* Push back all characters from 'c' separately to be read. */
-bool pushBackRawChars(struct linenoiseState *l, const struct linenoiseChar *c)
+static bool pushBackRawChars(struct linenoiseState *l, const struct linenoiseChar *c)
 {
     if (c->rawCharsLen > 0) {
         size_t i;
@@ -1723,7 +1723,7 @@ bool pushBackRawChars(struct linenoiseState *l, const struct linenoiseChar *c)
 /* Read single character.
  * Returns character code, or one of ReadCharSpecials values, but never
  * RCS_NONE (0). */
-const linenoiseChar *readRawChar(struct linenoiseState *l)
+static const linenoiseChar *readRawChar(struct linenoiseState *l)
 {
     static const linenoiseChar NONE = { RCS_NONE, {0}, 0 };
 
@@ -1928,7 +1928,7 @@ const linenoiseChar *readRawChar(struct linenoiseState *l)
 /* Read character and decode ANSI escape sequences.
  * Returns character code (value greater than zero), or one of ReadCharSpecials
  * values, but never RCS_NONE (0). */
-const linenoiseChar *readChar(struct linenoiseState *l)
+static const linenoiseChar *readChar(struct linenoiseState *l)
 {
     const linenoiseChar *c = &CHAR_NONE;
 
@@ -2048,7 +2048,7 @@ const linenoiseChar *readChar(struct linenoiseState *l)
 }
 
 /* Insert the character 'c' at position. */
-int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t charpos) {
+static int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t charpos) {
     if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
         size_t pos = charpos <= s->charlen ? charpos : s->charlen;
         size_t newLen = s->bytelen + c->rawCharsLen;
@@ -2078,7 +2078,7 @@ int insertChar(struct linenoiseString *s, const struct linenoiseChar *c, size_t 
 /* Insert the character 'c' at cursor current position.
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
-int linenoiseEditInsert(struct linenoiseState *l, const struct linenoiseChar *c) {
+static int linenoiseEditInsert(struct linenoiseState *l, const struct linenoiseChar *c) {
     int inserted = insertChar(&l->line, c, l->pos);
     if (inserted == -1) return -1;
     if (inserted > 0) {
@@ -2101,7 +2101,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const struct linenoiseChar *c)
 }
 
 /* Replace character at position */
-int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c) {
+static int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c) {
     if (c->unicodeChar >= 32 && c->rawCharsLen > 0) {
         if (l->line.charlen == l->pos) {
             return linenoiseEditInsert(l, c);
@@ -2134,7 +2134,7 @@ int linenoiseEditReplace(struct linenoiseState *l, const struct linenoiseChar *c
 }
 
 /* Cancel the line editing. */
-int cancelInternal(struct linenoiseState *l)
+static int cancelInternal(struct linenoiseState *l)
 {
     linenoiseChar c;
     if (linenoiseEditReplace(l, getChar(&c, '^')) == -1) return -1;
@@ -2152,7 +2152,7 @@ int cancelInternal(struct linenoiseState *l)
 }
 
 /* Move cursor on the left. */
-int linenoiseEditMoveLeft(struct linenoiseState *l) {
+static int linenoiseEditMoveLeft(struct linenoiseState *l) {
     if (l->pos > 0) {
         l->pos--;
         return refreshLine(l);
@@ -2162,7 +2162,7 @@ int linenoiseEditMoveLeft(struct linenoiseState *l) {
 }
 
 /* Move cursor on the right. */
-int linenoiseEditMoveRight(struct linenoiseState *l) {
+static int linenoiseEditMoveRight(struct linenoiseState *l) {
     if (l->pos != l->line.charlen) {
         l->pos++;
         return refreshLine(l);
@@ -2172,7 +2172,7 @@ int linenoiseEditMoveRight(struct linenoiseState *l) {
 }
 
 /* Update current history entry from the current buffer. */
-int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
+static int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
     if (history_len > 1) {
         free(history[history_len - 1 - l->history_index]);
         history[history_len - 1 - l->history_index] = _tcsdup(l->line.buf);
@@ -2185,7 +2185,7 @@ int linenoiseEditUpdateHistoryEntry(struct linenoiseState *l) {
 }
 
 /* Show history entry. */
-int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
+static int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
     size_t hist_strlen;
     l->history_index = index;
     if (l->history_index < 0) {
@@ -2208,7 +2208,7 @@ int linenoiseShowHistoryEntry(struct linenoiseState *l, int index, size_t pos) {
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
 #define LINENOISE_HISTORY_PREV 1
-int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
+static int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     if (history_len > 1) {
         int new_index;
 
@@ -2226,7 +2226,7 @@ int linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
 }
 
 /* Delete character at position. */
-int deleteChar(struct linenoiseString *s, size_t pos)
+static int deleteChar(struct linenoiseString *s, size_t pos)
 {
     if (s->charlen > 0 && pos < s->charlen) {
         size_t i;
@@ -2246,14 +2246,14 @@ int deleteChar(struct linenoiseString *s, size_t pos)
 
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
-int linenoiseEditDelete(struct linenoiseState *l) {
+static int linenoiseEditDelete(struct linenoiseState *l) {
     if (deleteChar(&l->line, l->pos) > 0) {
         return refreshLine(l);
     } else return 0;
 }
 
 /* Backspace implementation. */
-int linenoiseEditBackspace(struct linenoiseState *l) {
+static int linenoiseEditBackspace(struct linenoiseState *l) {
     if (l->pos > 0 && l->line.charlen > 0) {
         l->pos--;
         return linenoiseEditDelete(l);
@@ -2262,7 +2262,7 @@ int linenoiseEditBackspace(struct linenoiseState *l) {
 
 /* Delete the previosu word, maintaining the cursor at the start of the
  * current word. */
-int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
+static int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     size_t old_pos = l->pos;
     size_t chardiff;
     size_t bytediff;
@@ -2286,7 +2286,7 @@ int linenoiseEditDeletePrevWord(struct linenoiseState *l) {
 }
 
 /* Swap single character with previous one. */
-int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
+static int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
     if (l->pos >= 2 && l->pos == l->line.charlen)
         l->pos--;
     if (l->pos > 0 && l->pos < l->line.charlen) {
@@ -2305,7 +2305,7 @@ int linenoiseEditSwapCharWithPrevious(struct linenoiseState *l) {
 }
 
 /* Reset state to readling new line. */
-int resetState(struct linenoiseState *l)
+static int resetState(struct linenoiseState *l)
 {
     if (l->state != LS_NEW_LINE) {
         if (l->state == LS_COMPLETION) {
@@ -2323,7 +2323,7 @@ int resetState(struct linenoiseState *l)
 }
 
 /* Set closed state. */
-int setClosed(struct linenoiseState *l)
+static int setClosed(struct linenoiseState *l)
 {
     l->is_closed = true;
     return resetState(l);
@@ -2541,7 +2541,7 @@ static int freeHistorySearch(struct linenoiseState *l) {
 }
 
 /* Sets the temporary history searching prompt. */
-int setSearchPrompt(struct linenoiseState *l)
+static int setSearchPrompt(struct linenoiseState *l)
 {
     int result = 0;
     size_t promptlen = l->hist_search.text.bytelen + 22 + 1;
@@ -2563,7 +2563,7 @@ int setSearchPrompt(struct linenoiseState *l)
 }
 
 /* Find entry in history matching the current sequence */
-int linenoiseHistoryFindEntry(struct linenoiseState *l)
+static int linenoiseHistoryFindEntry(struct linenoiseState *l)
 {
     if (l->hist_search.text.bytelen > 0) {
         linenoiseString parsed = {NULL, NULL, 0, 0, 0};
