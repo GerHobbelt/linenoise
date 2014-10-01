@@ -954,6 +954,70 @@ static int completitionCompare(const void *first, const void *second)
 #endif
 }
 
+inline bool parseChar(const char_t **charstart, const char_t **charend, const char_t *srcend, mbstate_t *state)
+{
+    while (*charend < srcend) {
+#if !defined(_WIN32)
+        size_t found = mbrlen(*charend, 1, state);
+#elif !defined(_UNICODE)
+        size_t found = 1;
+#else   /* _WIN32 && _UNICODE */
+        size_t found;
+        if (**charstart < 0xD800 || **charstart > 0xDFFF) {
+            found = 1;
+        } else if (**charstart <= 0xDBFF && *charstart+1 < srcend
+                && *(*charstart+1) >= 0xDC00 && *(*charstart+1) <= 0xDFFF) {
+            ++*charend;
+            found = 1;
+        } else if (*charstart+1 < srcend) {
+            ++*charend;
+            found = (size_t)-1; /* Invalid sequence. */
+        } else {
+            found = (size_t)-2; /* Incomplete sequence. */
+        }
+#endif
+        if (found == (size_t)-1) {
+            *charstart = *charend;
+            continue;
+        } else if (found != (size_t)-2) {
+            return true;
+        } else {
+            ++*charend;
+        }
+    }
+    return false;
+}
+
+int copyString(const char_t *src, size_t srclen, char_t *dest, size_t *destcharlen)
+{
+    const char_t *charstart = src;
+    const char_t *charend = src;
+    const char_t *srcend = src + srclen;
+    char_t *destend = dest;
+    size_t charlen = 0;
+
+    mbstate_t state;
+    memset(&state, 0, sizeof(state));
+
+    bool found = false;
+    do {
+        found = parseChar(&charstart, &charend, srcend, &state);
+        if (found)
+        {
+            size_t newCharSize = (charend - charstart) + 1;
+            memcpy(destend, charstart, newCharSize*sizeof(char_t));
+            destend += newCharSize;
+            charlen++;
+            charstart = ++charend;
+        }
+    } while (found);
+
+    *destend = '\0';
+    if (destcharlen)
+        *destcharlen = charlen;
+    return destend-dest;
+}
+
 /* Parse line into linenoiseString. */
 int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
 {
@@ -970,40 +1034,20 @@ int parseLine(const char_t *src, size_t srclen, struct linenoiseString *dest)
     memset(&state, 0, sizeof(state));
 
     dest->charindex[0] = 0;
-    while (charend < srcend) {
-#if !defined(_WIN32)
-        size_t found = mbrlen(charend, 1, &state);
-#elif !defined(_UNICODE)
-        size_t found = 1;
-#else   /* _WIN32 && _UNICODE */
-        size_t found;
-        if (*charstart < 0xD800 || *charstart > 0xDFFF) {
-            found = 1;
-        } else if (*charstart <= 0xDBFF && charstart+1 < srcend
-                && *(charstart+1) >= 0xDC00 && *(charstart+1) <= 0xDFFF) {
-            charend++;
-            found = 1;
-        } else if (charstart+1 < srcend) {
-            ++charend;
-            found = (size_t)-1; /* Invalid sequence. */
-        } else {
-            found = (size_t)-2; /* Incomplete sequence. */
-        }
-#endif
-        if (found == (size_t)-1) {
-            charstart = charend;
-            continue;
-        } else if (found != (size_t)-2) {
+    bool found = false;
+    do {
+        found = parseChar(&charstart, &charend, srcend, &state);
+        if (found)
+        {
             size_t newCharSize = (charend - charstart) + 1;
             memcpy(dest->buf+newbytelen, charstart, newCharSize*sizeof(char_t));
             newcharlen++;
             newbytelen += newCharSize;
             dest->charindex[newcharlen] = newbytelen;
             charstart = ++charend;
-        } else {
-            ++charend;
         }
-    }
+    } while (found);
+
     dest->buf[newbytelen] = '\0';
     dest->charlen = newcharlen;
     dest->bytelen = newbytelen;
@@ -1103,7 +1147,6 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     size_t i;
     char_t *copy_suggestion = NULL;
     char_t *copy_text = NULL;
-    linenoiseString line = { 0 };
 
     if (suggestion == NULL || completed_text == NULL || *suggestion == '\0' || *completed_text == '\0') {
         setError(ERROR_EINVAL);
@@ -1114,14 +1157,11 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     charlen = len;
     copy_suggestion = (char_t*) malloc((len+1)*sizeof(char_t));
     copy_text = _tcsdup(completed_text);
-    if (copy_suggestion == NULL || copy_text == NULL) goto nomem_error_cleanup;
-    memcpy(copy_suggestion,suggestion,(len+1)*sizeof(char_t));
+    if (copy_suggestion == NULL || copy_text == NULL) goto error_cleanup;
+    (void) copyString(suggestion, len, copy_suggestion, &charlen);
     if (lc->len == 0 || lc->cvec != NULL) {
         linenoiseSingleCompletion *newcvec = (linenoiseSingleCompletion *) realloc(lc->cvec,sizeof(linenoiseSingleCompletion)*(lc->len+1));
-        if (newcvec == NULL) goto nomem_error_cleanup;
-        if (parseLine(suggestion, len, &line) == -1) goto error_cleanup;
-
-        charlen = line.charlen;
+        if (newcvec == NULL) goto error_cleanup;
 
         lc->cvec = newcvec;
         lc->cvec[lc->len].suggestion = copy_suggestion;
@@ -1131,11 +1171,7 @@ int linenoiseAddCompletion(linenoiseCompletions *lc, const char_t *suggestion, c
     }
     goto end;
 
-nomem_error_cleanup:
-    setError(ERROR_ENOMEM);
 error_cleanup:
-    result = -1;
-
     free(copy_suggestion);
     free(copy_text);
 
@@ -1143,9 +1179,10 @@ error_cleanup:
         free(lc->cvec[i].text);
     free(lc->cvec);
     lc->cvec = NULL;
+    setError(ERROR_ENOMEM);
+    result = -1;
 
 end:
-    freeString(&line);
     if (charlen > lc->max_charlen)
         lc->max_charlen = charlen;
     lc->len++;
