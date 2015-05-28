@@ -56,19 +56,19 @@ extern "C" {
 
 #include <stddef.h>
 
-typedef struct linenoise_completions linenoise_completions;
-typedef void (linenoise_completion_callback) (const char *, linenoise_completions *);
+typedef struct line_completions line_completions;
+typedef void (line_completion_callback) (const char *, line_completions *);
 
-void linenoise_vi_mode(int on);
-void linenoise_set_completion_callback(linenoise_completion_callback *);
-void linenoise_add_completion(linenoise_completions *, const char *);
+void line_vi_mode(int on);
+void line_set_completion_callback(line_completion_callback *);
+void line_add_completion(line_completions *, const char *);
 
-char *linenoise(const char *prompt);
-int linenoise_history_add(const char *line);
-int linenoise_history_set_maxlen(int len);
-int linenoise_history_save(const char *filename);
-int linenoise_history_load(const char *filename);
-void linenoise_clearscreen(void);
+char *line_editor(const char *prompt);
+int line_history_add(const char *line);
+int line_history_set_maxlen(int len);
+int line_history_save(const char *filename);
+int line_history_load(const char *filename);
+void line_clearscreen(void);
 
 #ifdef __cplusplus
 }
