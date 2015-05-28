@@ -6,8 +6,8 @@ as well as a basic command line history.
 
 ## Files
 
-* linenoise.c
-* linenoise.h
+* libline.c
+* libline.h
 
 ## Rationale
 
@@ -33,7 +33,7 @@ not apply anymore but it is kept here for completeness.
 A minimal, zero-config, BSD licensed, readline replacement used in Redis,
 MongoDB, and Android.
 
-* Single and multi line editing mode with the usual key bindings implemented.
+* Single line editing mode with the usual key bindings implemented.
 * History handling.
 * Completion.
 * About 1,100 lines of BSD license source code.
@@ -89,14 +89,7 @@ and commercial software.
 #### Tested with...
 
  * Linux text only console ($TERM = linux)
- * Linux KDE terminal application ($TERM = xterm)
  * Linux xterm ($TERM = xterm)
- * Linux Buildroot ($TERM = vt100)
- * Mac OS X iTerm ($TERM = xterm)
- * Mac OS X default Terminal.app ($TERM = xterm)
- * OpenBSD 4.5 through an OSX Terminal.app ($TERM = screen)
- * IBM AIX 6.1
- * FreeBSD xterm ($TERM = xterm)
 
 Please test it everywhere you can and report back!
 
