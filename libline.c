@@ -979,7 +979,7 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                 /* Only autocomplete when the callback is set. It returns < 0 when
                  * there was an error reading from fd. Otherwise it will return the
                  * character that should be handled next. */
-                if (c == 9 && completion_callback != NULL) {
+                if (c == '\t' && completion_callback != NULL) {
                         c = complete_line(&l);
                         /* Return on errors */
                         if (c < 0)
@@ -1296,10 +1296,9 @@ int line_history_set_maxlen(int len)
                 if (new == NULL)
                         return 0;
 
-                /* If we can't copy everything, free the elements we'll not use. */
+                /* If we can't copy everything, free the elements we do not use. */
                 if (len < tocopy) {
                         int j;
-
                         for (j = 0; j < tocopy - len; j++)
                                 free(history[j]);
                         tocopy = len;
@@ -1316,7 +1315,7 @@ int line_history_set_maxlen(int len)
 }
 
 /**
- * @ brief Save the history in the specified file. On success 0 is returned
+ * @brief Save the history in the specified file. On success 0 is returned
  *         otherwise -1 is returned. 
  **/
 int line_history_save(const char *filename)
@@ -1327,7 +1326,7 @@ int line_history_save(const char *filename)
         if (fp == NULL)
                 return -1;
         for (j = 0; j < history_len; j++)
-                fputs(history[j], fp);
+                fputs(history[j], fp), fputc('\n', fp);
         fclose(fp);
         return 0;
 }
