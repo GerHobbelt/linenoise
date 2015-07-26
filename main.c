@@ -8,7 +8,7 @@ int main(void)
         char *line = NULL;
         printf("This is a simple linenoise test\n");
         line_history_load(hist_file);
-        line_vi_mode(1);
+        line_set_vi_mode(1);
 
         while((line = line_editor("> "))) {
                 printf("\"%s\"\n", line);

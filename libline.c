@@ -1364,7 +1364,11 @@ int line_history_load(const char *filename)
 /**
  * @brief Turn on 'vi' editing mode
  **/
-void line_vi_mode(int on){
+void line_set_vi_mode(int on){
         vi_mode = on;
+}
+
+int line_get_vi_mode(void) {
+        return vi_mode;
 }
 
