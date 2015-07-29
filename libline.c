@@ -1282,12 +1282,13 @@ int line_history_add(const char *line)
  * if there is already some history, the function will make sure to retain
  * just the latest 'len' elements if the new history length value is smaller
  * than the amount of items already inside the history. 
+ *
  **/
 int line_history_set_maxlen(int len)
 {
         char **new;
 
-        if (len < 1)
+        if (++len < 1)
                 return 0;
         if (history) {
                 int tocopy = history_len;
