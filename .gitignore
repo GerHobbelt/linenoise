@@ -4,3 +4,6 @@
 line
 *.htm
 *.html
+linenoise_example
+*.dSYM
+history.txt
