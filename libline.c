@@ -114,7 +114,13 @@
  * ED2 (Clear entire screen)
  *    Sequence: ESC [ 2 J
  *    Effect: clear the whole screen
- * 
+ *
+ * For documents relating to the Windows port look here:
+ * <http://conio.sourceforge.net/docs/html/index.html>
+ * <http://conio.sourceforge.net/>
+ * <https://en.wikipedia.org/wiki/Conio.h>
+ * <http://c-faq.com/osdep/cbreak.html>
+ *
  */
 
 #include "libline.h"
@@ -123,9 +129,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __unix__
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#elif __WIN32
+#include <windows.h>
+#include <conio.h>
+#define STDIN_FILENO  -1
+#define STDOUT_FILENO -1
+#else
+#error "Unsupported operating system"
+#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN (100)
 #define LINENOISE_MAX_LINE                (4096)
@@ -246,6 +262,7 @@ static int is_unsupported_term(void)
  **/
 static int enable_raw_mode(int fd)
 {
+#ifdef __unix__
         struct termios raw;
 
         if (!isatty(STDIN_FILENO))
@@ -282,6 +299,9 @@ static int enable_raw_mode(int fd)
  fatal:
         errno = ENOTTY;
         return -1;
+#elif __WIN32
+        return 0;
+#endif
 }
 
 /** 
@@ -289,9 +309,13 @@ static int enable_raw_mode(int fd)
  **/
 static void disable_raw_mode(int fd)
 {
+#ifdef __unix__
         /* Don't even check the return value as it's too late. */
         if (rawmode && tcsetattr(fd, TCSAFLUSH, &orig_termios) != -1)
                 rawmode = 0;
+#else
+        (void)fd;
+#endif
 }
 
 /**
@@ -301,6 +325,7 @@ static void disable_raw_mode(int fd)
  **/
 static int get_cursor_position(int ifd, int ofd)
 {
+#ifdef __unix__
         char buf[32];
         int cols, rows;
         size_t i = 0;
@@ -325,6 +350,10 @@ static int get_cursor_position(int ifd, int ofd)
         if (sscanf(buf + 2, "%d;%d", &rows, &cols) != 2)
                 return -1;
         return cols;
+#elif __WIN32
+        (void)ifd; (void)ofd;
+        return wherex();
+#endif
 }
 
 /** 
@@ -333,6 +362,7 @@ static int get_cursor_position(int ifd, int ofd)
  **/
 static int get_columns(int ifd, int ofd)
 {
+#ifdef __unix__
         struct winsize ws;
 
         if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
@@ -366,6 +396,10 @@ static int get_columns(int ifd, int ofd)
 
  failed:
         return 80;
+#elif __WIN32
+        (void)ifd; (void)ofd;
+        return wherey();
+#endif
 }
 
 /** 
@@ -373,9 +407,13 @@ static int get_columns(int ifd, int ofd)
  **/
 void line_clearscreen(void)
 {
+#ifdef __unix__
         if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
                 /* nothing to do, just to avoid warning. */
         }
+#elif __WIN32
+        clrscr();
+#endif
 }
 
 /** 
@@ -384,8 +422,12 @@ void line_clearscreen(void)
  **/
 static void line_beep(void)
 {
+#ifdef __unix__
         fputs("\x7",stderr);
         fflush(stderr);
+#elif __WIN32
+        Beep( 750, 300 );
+#endif
 }
 
 /******************************** Completion *********************************/
@@ -563,6 +605,7 @@ static void refresh_line(struct line_state *l)
         if(plen + len > l->cols)
                 len = l->cols - plen;
 
+#ifdef __unix__
         ab_init(&ab);
         /* Cursor to left edge */
         snprintf(seq, SEQ_BUF_LEN, "\x1b[0G");
@@ -579,6 +622,9 @@ static void refresh_line(struct line_state *l)
         if (write(fd, ab.b, ab.len) == -1) {
         }                       /* Can't recover from write error. */
         ab_free(&ab);
+#elif __WIN32
+        /*XXX: To do*/
+#endif
 }
 
 /**
