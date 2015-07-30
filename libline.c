@@ -137,8 +137,7 @@
 #elif __WIN32
 #include <windows.h>
 #include <conio.h>
-#define STDIN_FILENO  -1
-#define STDOUT_FILENO -1
+#include <io.h>
 #else
 #error "Unsupported operating system"
 #endif
