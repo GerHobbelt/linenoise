@@ -7,3 +7,7 @@ line
 linenoise_example
 *.dSYM
 history.txt
+*.def
+*~
+*.swp
+*.exe

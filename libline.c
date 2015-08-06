@@ -152,7 +152,9 @@ static char *unsupported_term[] = { "dumb", "cons25", "emacs", NULL };
 
 static line_completion_callback *completion_callback = NULL;
 
+#ifdef __unix__
 static struct termios orig_termios;     /* In order to restore at exit. */
+#endif
 static int rawmode = 0;         /* For atexit() function to check if restore is needed */
 static int atexit_registered = 0;       /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
@@ -351,7 +353,7 @@ static int get_cursor_position(int ifd, int ofd)
         return cols;
 #elif __WIN32
         (void)ifd; (void)ofd;
-        return wherex();
+        return /*wherex()*/ 0;
 #endif
 }
 
@@ -397,7 +399,8 @@ static int get_columns(int ifd, int ofd)
         return 80;
 #elif __WIN32
         (void)ifd; (void)ofd;
-        return wherey();
+        /*return wherey();*/
+        return 0;
 #endif
 }
 
@@ -411,7 +414,8 @@ void line_clearscreen(void)
                 /* nothing to do, just to avoid warning. */
         }
 #elif __WIN32
-        clrscr();
+         system("CLS");
+        /*clrscr();*/
 #endif
 }
 
