@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -g
+CFLAGS=-Wall -Wextra -g -pedantic 
 TARGET=line
 .PHONY: all clean
 all: $(TARGET)

@@ -129,6 +129,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #ifdef __unix__
 #include <sys/ioctl.h>
@@ -237,7 +238,18 @@ static void line_at_exit(void);
 static void line_beep(void);
 static void line_edit_next_word(struct line_state *l);
 static void line_edit_prev_word(struct line_state *l);
-static void refresh_line(struct line_state *l);;
+static void refresh_line(struct line_state *l);
+
+static char *le_strdup(const char *s) { 
+        char *str;
+        assert(s);
+        if(!(str = malloc(strlen(s) + 1))) {
+                fputs("Out of memory", stderr);
+                exit(1); /*not the best thing to do in a library*/
+        }
+        strcpy(str, s);
+        return str;
+}
 
 /************************* Low level terminal handling ***********************/
 
@@ -717,7 +729,7 @@ void line_edit_history_next(struct line_state *l, int dir)
                 /* Update the current history entry before to
                  * overwrite it with the next one. */
                 free(history[history_len - 1 - l->history_index]);
-                history[history_len - 1 - l->history_index] = strdup(l->buf);
+                history[history_len - 1 - l->history_index] = le_strdup(l->buf);
                 /* Show the new entry */
                 l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
                 if (l->history_index < 0) {
@@ -972,6 +984,7 @@ static int line_edit_delete_char(struct line_state *l){
         } else {
                 history_len--;
                 free(history[history_len]);
+                history[history_len] = NULL;
                 return -1;
         }
 
@@ -1042,6 +1055,7 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                 case ENTER:  
                         history_len--;
                         free(history[history_len]);
+                        history[history_len] = NULL;
                         return l.len;
                 case CTRL_C:  
                         errno = EAGAIN;
@@ -1244,12 +1258,12 @@ char *line_editor(const char *prompt)
                         len--;
                         buf[len] = '\0';
                 }
-                return strdup(buf);
+                return le_strdup(buf);
         } else {
                 count = line_raw(buf, LINENOISE_MAX_LINE, prompt);
                 if (count == -1)
                         return NULL;
-                return strdup(buf);
+                return le_strdup(buf);
         }
 }
 
@@ -1264,9 +1278,12 @@ static void free_history(void)
         if (history) {
                 int j;
 
-                for (j = 0; j < history_len; j++)
+                for (j = 0; j < history_len; j++) {
                         free(history[j]);
+                        history[j] = NULL;
+                }
                 free(history);
+                history = NULL;
         }
 }
 
@@ -1275,7 +1292,8 @@ static void free_history(void)
  **/
 static void line_at_exit(void)
 {
-        disable_raw_mode(STDIN_FILENO);
+        if(rawmode)
+                disable_raw_mode(STDIN_FILENO);
         free_history();
 }
 
@@ -1311,7 +1329,7 @@ int line_history_add(const char *line)
 
         /* Add an heap allocated copy of the line in the history.
          * If we reached the max length, remove the older line. */
-        linecopy = strdup(line);
+        linecopy = le_strdup(line);
         if (!linecopy)
                 return 0;
         if (history_len == history_max_len) {
@@ -1408,6 +1426,10 @@ int line_history_load(const char *filename)
                 line_history_add(buf);
         }
         fclose(fp);
+
+        if(!atexit_registered)
+                atexit(line_at_exit);
+
         return 0;
 }
 
