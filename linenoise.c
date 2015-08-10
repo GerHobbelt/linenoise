@@ -114,6 +114,7 @@
 #define snprintf _snprintf
 #endif
 #else
+#define _BSD_SOURCE
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -124,7 +125,6 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
-#include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <errno.h>
