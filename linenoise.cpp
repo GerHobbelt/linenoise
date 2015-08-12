@@ -767,7 +767,7 @@ static int outputChars(struct current *current, const char *buf, int len)
     pos.X = (SHORT)current->x;
     pos.Y = (SHORT)current->y;
 
-    WriteConsoleOutputCharacter(current->outh, buf, len, pos, &n);
+    WriteConsoleOutputCharacterA(current->outh, buf, len, pos, &n);
     current->x += len;
     return 0;
 }
