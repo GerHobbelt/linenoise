@@ -111,8 +111,9 @@
 #define HAVE_UNISTD_H
 #else
 /* Microsoft headers don't like old POSIX names */
-#define strdup _strdup
-#define snprintf _snprintf
+//#define strdup _strdup
+//#define snprintf _snprintf
+#define _CRT_SECURE_NO_WARNINGS
 #endif
 #else
 #define _BSD_SOURCE
