@@ -415,6 +415,12 @@ static int outputChars(struct current *current, const char *buf, int len)
     return write(current->fd, buf, len);
 }
 
+static int outputString(struct current *current, const char *buf, int len)
+{
+	// Note: On Linux this function does the same as outputChars().
+	return outputChars(current, buf, len);
+}
+
 static void outputControlChar(struct current *current, char ch)
 {
     fd_printf(current->fd, "\x1b[7m^%c\x1b[0m", ch);
@@ -771,6 +777,16 @@ static int outputChars(struct current *current, const char *buf, int len)
     WriteConsoleOutputCharacterA(current->outh, buf, len, pos, &n);
     current->x += len;
     return 0;
+}
+
+// Writes the given string to the current cursor position.
+// Note that unlike outputChars() this function *does not* use the internal (x, y)
+// position and *does* change the cursor position.
+static int outputString(struct current *current, const char *buf, int len)
+{
+	DWORD n;
+	WriteConsoleA(current->outh, buf, len, &n, NULL);
+	return 0;
 }
 
 static void outputControlChar(struct current *current, char ch)
@@ -1878,16 +1894,14 @@ namespace linenoisepp
 			// Another thread is currently inside linenoise() => Clear the current line, print, then re-prompt
 			cursorToLeft(context);
 			eraseEol(context);
-			const auto res = write(context->fd, line.c_str(), line.size());
-			unused(res);
+			outputString(context, line.c_str(), line.size());
 			refreshLine(context->prompt, context);
 			// TODO fix refresh when in completion mode or search mode
 		}
 		else
 		{
 			// No other thread is currently inside linenoise() => Simply print the line
-			const auto res = write(context->fd, line.c_str(), line.size());
-			unused(res);
+			outputString(context, line.c_str(), line.size());
 		}
 	}
 
