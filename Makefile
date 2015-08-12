@@ -1,13 +1,7 @@
-all:  linenoise_example linenoise_utf8_example linenoise_cpp_example
+all: example
 
-linenoise_example: linenoise.h linenoise.c example.c
-	$(CC) -Wall -W -Os -g -o $@ linenoise.c example.c
-
-linenoise_utf8_example: linenoise.c utf8.c example.c
-	$(CC) -DNO_COMPLETION -DUSE_UTF8 -Wall -W -Os -g -o $@ linenoise.c utf8.c example.c
-
-linenoise_cpp_example: linenoise.h linenoise.c
-	g++ -Wall -W -Os -g -o $@ linenoise.c example.c
+example: linenoise.hpp linenoise.cpp example.cpp
+	g++ -std=c++11 -Wall -W -Os -g -pthread -o $@ linenoise.cpp example.cpp
 
 clean:
-	rm -f linenoise_example linenoise_utf8_example linenoise_cpp_example *.o
+	rm -f example *.o
