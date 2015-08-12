@@ -14,6 +14,7 @@
  * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  * Copyright (c) 2011, Steve Bennett <steveb at workware dot net dot au>
+ * Copyright (c) 2015, Logitech <mrubli2 at logitech dot com>
  *
  * All rights reserved.
  *
@@ -132,13 +133,92 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-#include "linenoise.h"
+#include <mutex>
+#include <type_traits>
+
+#include "linenoise.hpp"
 #include "utf8.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 
 #define ctrl(C) ((C) - '@')
+
+
+namespace
+{
+
+#ifndef NO_COMPLETION
+typedef struct linenoiseCompletions {
+  size_t len;
+  char **cvec;
+} linenoiseCompletions;
+
+/*
+ * The callback type for tab completion handlers.
+ */
+typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *, void *);
+
+/*
+ * Sets the current tab completion handler.
+ */
+void linenoiseSetCompletionCallback(linenoiseCompletionCallback *, void *);
+
+/*
+ * Adds a copy of the given string to the given completion list. The copy is owned
+ * by the linenoiseCompletions object.
+ */
+void linenoiseAddCompletion(linenoiseCompletions *, const char *);
+#endif
+
+/*
+ * Adds a copy of the given line of the command history.
+ */
+int linenoiseHistoryAdd(const char *line);
+
+/*
+ * Sets the maximum length of the command history, in lines.
+ * If the history is currently longer, it will be trimmed,
+ * retaining only the most recent entries. If len is 0 or less
+ * then this function does nothing.
+ */
+int linenoiseHistorySetMaxLen(int len);
+
+/*
+ * Returns the current maximum length of the history, in lines.
+ */
+int linenoiseHistoryGetMaxLen(void);
+
+/*
+ * Saves the current contents of the history to the given file.
+ * Returns 0 on success.
+ */
+int linenoiseHistorySave(const char *filename);
+
+/*
+ * Replaces the current history with the contents
+ * of the given file.  Returns 0 on success.
+ */
+int linenoiseHistoryLoad(const char *filename);
+
+/*
+ * Frees all history entries, clearing the history.
+ */
+void linenoiseHistoryFree(void);
+
+/*
+ * Returns a pointer to the list of history entries, writing its
+ * length to *len if len is not NULL. The memory is owned by linenoise
+ * and must not be freed.
+ */
+char **linenoiseHistory(int *len);
+
+/*
+ * Returns the number of display columns in the current terminal.
+ */
+int linenoiseColumns(void);
+
+
 
 /* Use -ve numbers here to co-exist with normal unicode chars */
 enum {
@@ -161,22 +241,22 @@ static char **history = NULL;
 
 /* Structure to contain the status of the current (being edited) line */
 struct current {
-    char *buf;  /* Current buffer. Always null terminated */
-    int bufmax; /* Size of the buffer, including space for the null termination */
-    int len;    /* Number of bytes in 'buf' */
-    int chars;  /* Number of chars in 'buf' (utf-8 chars) */
-    int pos;    /* Cursor position, measured in chars */
-    int cols;   /* Size of the window, in chars */
-    const char *prompt;
-    char *capture; /* Allocated capture buffer, or NULL for none. Always null terminated */
+    char *buf{};  /* Current buffer. Always null terminated */
+    int bufmax{}; /* Size of the buffer, including space for the null termination */
+    int len{};    /* Number of bytes in 'buf' */
+    int chars{};  /* Number of chars in 'buf' (utf-8 chars) */
+    int pos{};    /* Cursor position, measured in chars */
+    int cols{};   /* Size of the window, in chars */
+    const char *prompt{};
+    char *capture{}; /* Allocated capture buffer, or NULL for none. Always null terminated */
 #if defined(USE_TERMIOS)
-    int fd;     /* Terminal fd */
+    int fd{};     /* Terminal fd */
 #elif defined(USE_WINCONSOLE)
-    HANDLE outh; /* Console output handle */
-    HANDLE inh; /* Console input handle */
-    int rows;   /* Screen rows */
-    int x;      /* Current column during output */
-    int y;      /* Current row */
+    HANDLE outh{}; /* Console output handle */
+    HANDLE inh{}; /* Console input handle */
+    int rows{};   /* Screen rows */
+    int x{};      /* Current column during output */
+    int y{};      /* Current row */
 #endif
 };
 
@@ -1081,6 +1161,7 @@ static int insert_chars(struct current *current, int pos, const char *chars)
 
 #ifndef NO_COMPLETION
 static linenoiseCompletionCallback *completionCallback = NULL;
+static void *completionCallbackContext = NULL;
 
 static void beep() {
 #ifdef USE_TERMIOS
@@ -1100,7 +1181,7 @@ static int completeLine(struct current *current) {
     linenoiseCompletions lc = { 0, NULL };
     int c = 0;
 
-    completionCallback(current->buf,&lc);
+    completionCallback(current->buf, &lc, completionCallbackContext);
     if (lc.len == 0) {
         beep();
     } else {
@@ -1150,13 +1231,10 @@ static int completeLine(struct current *current) {
     return c; /* Return last read character */
 }
 
-/* Register a callback function to be called for tab-completion.
-   Returns the prior callback so that the caller may (if needed)
-   restore it when done. */
-linenoiseCompletionCallback * linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {
-    linenoiseCompletionCallback * old = completionCallback;
+/* Register a callback function to be called for tab-completion. */
+void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn, void *context) {
     completionCallback = fn;
-    return old;
+	completionCallbackContext = context;
 }
 
 void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
@@ -1477,10 +1555,16 @@ int linenoiseColumns(void)
     return current.cols;
 }
 
-char *linenoise(const char *prompt)
+/*
+ * Prompts for input using the given string as the input
+ * prompt. Returns when the user has tapped ENTER or (on an empty
+ * line) EOF (Ctrl-D on Unix, Ctrl-Z on Windows). Returns either
+ * a copy of the entered string (for ENTER) or NULL (on EOF).  The
+ * caller owns the returned string and must eventually free() it.
+ */
+char *linenoise(const char *prompt, current& current)
 {
     int count;
-    struct current current;
     char buf[LINENOISE_MAX_LINE];
 
     if (enableRawMode(&current) == -1) {
@@ -1662,4 +1746,214 @@ char **linenoiseHistory(int *len) {
         *len = history_len;
     }
     return history;
+}
+
+}
+
+
+
+using namespace std;
+
+
+namespace
+{
+	// Replacement for std::make_unique until we have C++14 support.
+	// See: http://herbsutter.com/gotw/_102/
+#if ! defined(__cpp_lib_make_unique) 
+
+	template <typename T, typename ...Args>
+	typename std::enable_if
+	<
+		!std::is_array<T>::value,
+		std::unique_ptr<T>
+	>::type
+	make_unique(Args&& ...args)
+	{
+		return std::unique_ptr<T>{ new T{ std::forward<Args>(args)... } };
+	}
+
+	template <typename T>
+	typename std::enable_if
+	<
+		std::is_array<T>::value,
+		std::unique_ptr<T>
+	>::type
+	make_unique(std::size_t n)
+	{
+		typedef typename std::remove_extent<T>::type RT;
+		return std::unique_ptr<T>{ new RT[n] };
+	}
+
+#endif
+
+
+	// Empty method to silence warnings about unused variables
+	template<typename... T> void unused(T&&...) {}
+
+}
+
+
+struct linenoisepp::LineNoise::CheshireCat
+{
+	current				context_{};
+
+#ifndef NO_COMPLETION
+	CompletionCallback	completionCallback_;
+#endif
+
+	mutex				mutex_{};
+	bool				prompting_{ false };
+
+#ifndef NO_COMPLETION
+
+	void OnCompletionCallback(const char *buffer, linenoiseCompletions *lc)
+	{
+		const auto completions = completionCallback_(buffer);
+		for(const auto completion : completions)
+		{
+			linenoiseAddCompletion(lc, completion.c_str());
+		}
+	}
+
+	static void DispatchCompletionCallback(const char *buffer, linenoiseCompletions *lc, void *context)
+	{
+		auto *thiz = static_cast<CheshireCat *>(context);
+		thiz->OnCompletionCallback(buffer, lc);
+	}
+
+#endif
+};
+
+
+namespace linenoisepp
+{
+
+	LineNoise::LineNoise()
+		: d_{ make_unique<CheshireCat>() }
+	{
+	}
+
+
+	LineNoise::~LineNoise()
+	{
+	}
+
+
+	tuple<bool, string>
+	LineNoise::Prompt(const string& prompt)
+	{
+		{
+			lock_guard<mutex> lock{ d_->mutex_ };
+			d_->prompting_ = true;
+		}
+		char *line = linenoise(prompt.c_str(), d_->context_);
+		{
+			lock_guard<mutex> lock{ d_->mutex_ };
+			d_->prompting_ = false;
+		}
+
+		if(line)
+		{
+			const auto s = string{ line };
+			free(line);
+			return make_tuple(true, s);
+		}
+		else
+		{
+			return make_tuple(false, string{});
+		}
+	}
+
+
+	void
+	LineNoise::WriteLine(const std::string& line)
+	{
+		auto * const context = &d_->context_;
+
+		lock_guard<mutex> lock{ d_->mutex_ };
+		if(d_->prompting_)
+		{
+			// Another thread is currently inside linenoise() => Clear the current line, print, then re-prompt
+			cursorToLeft(context);
+			eraseEol(context);
+			const auto res = write(context->fd, line.c_str(), line.size());
+			unused(res);
+			refreshLine(context->prompt, context);
+			// TODO fix refresh when in completion mode or search mode
+		}
+		else
+		{
+			// No other thread is currently inside linenoise() => Simply print the line
+			const auto res = write(context->fd, line.c_str(), line.size());
+			unused(res);
+		}
+	}
+
+
+#ifndef NO_COMPLETION
+	void
+	LineNoise::SetCompletionCallback(CompletionCallback callback)
+	{
+		d_->completionCallback_ = move(callback);
+
+		if(d_->completionCallback_)
+		{
+			linenoiseSetCompletionCallback(CheshireCat::DispatchCompletionCallback, d_.get());
+		}
+		else
+		{
+			linenoiseSetCompletionCallback(nullptr, nullptr);
+		}
+	}
+#endif
+
+
+	bool
+	LineNoise::HistoryAdd(const std::string& line)
+	{
+		return linenoiseHistoryAdd(line.c_str()) != 0;
+	}
+
+
+	int
+	LineNoise::HistoryGetMaxLen() const
+	{
+		return linenoiseHistoryGetMaxLen();
+	}
+
+
+	bool
+	LineNoise::HistorySetMaxLen(int length)
+	{
+		return linenoiseHistorySetMaxLen(length) != 0;
+	}
+
+
+	bool
+	LineNoise::HistorySave(const std::string& fileName)
+	{
+		return linenoiseHistorySave(fileName.c_str()) == 0;
+	}
+
+
+	bool
+	LineNoise::HistoryLoad(const std::string& fileName)
+	{
+		return linenoiseHistoryLoad(fileName.c_str()) == 0;
+	}
+
+
+	void
+	LineNoise::HistoryClear()
+	{
+		linenoiseHistoryFree();
+	}
+
+
+	int
+	LineNoise::GetColumns() const
+	{
+		return linenoiseColumns();
+	}
+
 }
