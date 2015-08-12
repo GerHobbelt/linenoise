@@ -263,6 +263,7 @@ struct current {
 
 static int fd_read(struct current *current);
 static int getWindowSize(struct current *current);
+static void setCursorPos(struct current *current, int x);
 
 void linenoiseHistoryFree(void) {
     if (history) {
@@ -756,7 +757,7 @@ static void cursorToLeft(struct current *current)
 
     FillConsoleOutputAttribute(current->outh,
         FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_GREEN, current->cols, pos, &n);
-    current->x = 0;
+    setCursorPos(current, 0);
 }
 
 static int outputChars(struct current *current, const char *buf, int len)
