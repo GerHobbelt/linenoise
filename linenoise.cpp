@@ -1760,7 +1760,7 @@ namespace
 {
 	// Replacement for std::make_unique until we have C++14 support.
 	// See: http://herbsutter.com/gotw/_102/
-#if ! defined(__cpp_lib_make_unique) 
+#if defined(_MSC_VER) ? (_MSC_VER < 1900) : !defined(__cpp_lib_make_unique)
 
 	template <typename T, typename ...Args>
 	typename std::enable_if
