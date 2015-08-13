@@ -138,12 +138,24 @@
 #include <type_traits>
 
 #include "linenoise.hpp"
-#include "utf8.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 
 #define ctrl(C) ((C) - '@')
+
+
+/*
+ * Macros that used to be in utf8.h
+ */
+
+#include <ctype.h>
+
+/* No utf-8 support. 1 byte = 1 char */
+#define utf8_strlen(S, B) ((B) < 0 ? (int)strlen(S) : (B))
+#define utf8_tounicode(S, CP) (*(CP) = (unsigned char)*(S), 1)
+#define utf8_index(C, I) (I)
+#define utf8_charlen(C) 1
 
 
 namespace
@@ -467,31 +479,7 @@ static int fd_read_char(int fd, int timeout)
  */
 static int fd_read(struct current *current)
 {
-#ifdef USE_UTF8
-    char buf[4];
-    int n;
-    int i;
-    int c;
-
-    if (read(current->fd, &buf[0], 1) != 1) {
-        return -1;
-    }
-    n = utf8_charlen(buf[0]);
-    if (n < 1 || n > 3) {
-        return -1;
-    }
-    for (i = 1; i < n; i++) {
-        if (read(current->fd, &buf[i], 1) != 1) {
-            return -1;
-        }
-    }
-    buf[n] = 0;
-    /* decode and return the character */
-    utf8_tounicode(buf, &c);
-    return c;
-#else
     return fd_read_char(current->fd, -1);
-#endif
 }
 
 static int countColorControlChars(const char* prompt)
@@ -865,11 +853,7 @@ static int fd_read(struct current *current)
             else if (k->wVirtualKeyCode == VK_CONTROL)
 	        continue;
             else {
-#ifdef USE_UTF8
-                return k->uChar.UnicodeChar;
-#else
                 return k->uChar.AsciiChar;
-#endif
             }
         }
     }
@@ -904,12 +888,8 @@ static int getWindowSize(struct current *current)
 
 static int utf8_getchars(char *buf, int c)
 {
-#ifdef USE_UTF8
-    return utf8_fromunicode(buf, c);
-#else
     *buf = c;
     return 1;
-#endif
 }
 
 /**
