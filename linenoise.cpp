@@ -1866,6 +1866,17 @@ namespace linenoisepp
 	void
 	LineNoise::WriteLine(const std::string& line)
 	{
+		return WriteLine(line.c_str(), line.size());
+	}
+
+
+	void
+	LineNoise::WriteLine(const char *line, std::streamsize size)
+	{
+		if(size == 0)
+			return;
+		const auto noLineEnd = (line[size - 1] != '\n');
+
 		auto * const context = &d_->context_;
 
 		lock_guard<mutex> lock{ d_->mutex_ };
@@ -1874,14 +1885,18 @@ namespace linenoisepp
 			// Another thread is currently inside linenoise() => Clear the current line, print, then re-prompt
 			cursorToLeft(context);
 			eraseEol(context);
-			outputString(context, line.c_str(), line.size());
+			outputString(context, line, size);
+			if(noLineEnd)
+				outputString(context, "\n", 1);
 			refreshLine(context->prompt, context);
 			// TODO fix refresh when in completion mode or search mode
 		}
 		else
 		{
 			// No other thread is currently inside linenoise() => Simply print the line
-			outputString(context, line.c_str(), line.size());
+			outputString(context, line, size);
+			if(noLineEnd)
+				outputString(context, "\n", 1);
 		}
 	}
 

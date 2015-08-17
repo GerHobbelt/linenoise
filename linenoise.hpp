@@ -24,6 +24,7 @@ namespace linenoisepp
 		std::tuple<bool, std::string>	Prompt(const std::string& prompt);
 
 		void							WriteLine(const std::string& line);
+		void							WriteLine(const char *line, std::streamsize size);
 
 #ifndef NO_COMPLETION
 		void							SetCompletionCallback(CompletionCallback callback);
