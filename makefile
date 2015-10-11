@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall -Wextra -g -pedantic 
 TARGET=line
 .PHONY: all clean
-all: $(TARGET)
+all: $(TARGET) libline.so
 doc: $(TARGET).htm 
 lib$(TARGET).a: lib$(TARGET).o
 	ar rcs $@ $<
