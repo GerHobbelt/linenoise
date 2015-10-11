@@ -6,11 +6,10 @@ all: $(TARGET) libline.so
 doc: $(TARGET).htm 
 lib$(TARGET).a: lib$(TARGET).o
 	ar rcs $@ $<
-lib$(TARGET).so: lib$(TARGET).c lib$(TARGET).h
-	$(CC) $(CFLAGS) $< -c -fPIC -o $@
+lib$(TARGET).so: lib$(TARGET).c lib$(TARGET).o lib$(TARGET).h
 	$(CC) -shared -fPIC $< -o $@
 lib$(TARGET).o: lib$(TARGET).c lib$(TARGET).h
-	$(CC) $(CFLAGS) $< -c -o $@
+	$(CC) $(CFLAGS) $< -fPIC -c -o $@
 $(TARGET): main.c lib$(TARGET).a
 	$(CC) $(CFLAGS) $^ -o $@
 $(TARGET).htm: $(TARGET).md
