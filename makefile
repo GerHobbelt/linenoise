@@ -7,7 +7,7 @@ doc: $(TARGET).htm
 lib$(TARGET).a: lib$(TARGET).o
 	ar rcs $@ $<
 lib$(TARGET).so: lib$(TARGET).c lib$(TARGET).h
-	$(CC) $(CFLAGS) $< -c -fpic -o $@
+	$(CC) $(CFLAGS) $< -c -fPIC -o $@
 	$(CC) -shared -fPIC $< -o $@
 lib$(TARGET).o: lib$(TARGET).c lib$(TARGET).h
 	$(CC) $(CFLAGS) $< -c -o $@
