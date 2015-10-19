@@ -6,4 +6,6 @@ line
 *.html
 linenoise_example
 *.dSYM
-history.txt
+*.txt
+*.exe
+*.dll

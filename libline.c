@@ -9,7 +9,7 @@
  * @author      Richard Howe
  * @license     BSD (included as comment)
  *
- * @todo There are a few vi commands that should be added
+ * @todo There are a few vi commands that should be added (rR)
  * @todo The vi section and the rest should be separated.
  * @todo It would probably be best to split up this file into separate
  *       smaller ones.
@@ -34,7 +34,7 @@
  *
  * ADDITIONAL COPYRIGHT
  *
- * Copyright (c) 2014, Richard James Howe <howe.r.j.89@gmail.com>
+ * Copyright (c) 2015, Richard James Howe <howe.r.j.89@gmail.com>
  *
  * ORIGINAL COPYRIGHT HEADER
  *
@@ -124,9 +124,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#ifdef __unix__
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#elif _WIN32
+#include <windows.h>
+#include <io.h>
+#include <conio.h>
+#else
+#error "Unsupported system"
+#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN (100)
 #define LINENOISE_MAX_LINE                (4096)
@@ -138,8 +146,10 @@ static char *unsupported_term[] = { "dumb", "cons25", "emacs", NULL };
 
 static line_completion_callback *completion_callback = NULL;
 
+#ifdef __unix__
 static struct termios orig_termios;     /* In order to restore at exit. */
 static int rawmode = 0;         /* For atexit() function to check if restore is needed */
+#endif
 static int atexit_registered = 0;       /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
@@ -258,6 +268,7 @@ static int is_unsupported_term(void)
  **/
 static int enable_raw_mode(int fd)
 {
+#ifdef __unix__
         struct termios raw;
 
         if (!isatty(STDIN_FILENO))
@@ -294,6 +305,14 @@ static int enable_raw_mode(int fd)
  fatal:
         errno = ENOTTY;
         return -1;
+#elif _WIN32
+	(void)fd; /* parameter not used */
+        if (!atexit_registered) {
+                atexit(line_at_exit);
+                atexit_registered = 1;
+        }
+	return 0;
+#endif
 }
 
 /** 
@@ -301,9 +320,13 @@ static int enable_raw_mode(int fd)
  **/
 static void disable_raw_mode(int fd)
 {
+#ifdef __unix__
         /* Don't even check the return value as it's too late. */
         if (rawmode && tcsetattr(fd, TCSAFLUSH, &orig_termios) != -1)
                 rawmode = 0;
+#elif _WIN32
+	(void)fd;
+#endif
 }
 
 /**
@@ -345,6 +368,7 @@ static int get_cursor_position(int ifd, int ofd)
  **/
 static int get_columns(int ifd, int ofd)
 {
+#ifdef __unix__
         struct winsize ws;
 
         if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
@@ -378,6 +402,11 @@ static int get_columns(int ifd, int ofd)
 
  failed:
         return 80;
+#elif _WIN32
+	(void)ifd; 
+	(void)ofd;
+	return 80;
+#endif
 }
 
 /** 
@@ -385,9 +414,13 @@ static int get_columns(int ifd, int ofd)
  **/
 void line_clearscreen(void)
 {
+#ifdef __unix__
         if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
                 /* nothing to do, just to avoid warning. */
         }
+#elif _WIN32
+	/*clrscr();*/
+#endif
 }
 
 /** 
@@ -396,8 +429,12 @@ void line_clearscreen(void)
  **/
 static void line_beep(void)
 {
+#ifdef __unix__
         fputs("\x7",stderr);
         fflush(stderr);
+#elif _WIN32
+        /*beep();*/
+#endif
 }
 
 /******************************** Completion *********************************/
@@ -1243,8 +1280,10 @@ static void free_history(void)
  **/
 static void line_at_exit(void)
 {
+#ifdef __unix__
         if(rawmode)
                 disable_raw_mode(STDIN_FILENO);
+#endif
         free_history();
 }
 
