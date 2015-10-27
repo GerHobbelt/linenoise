@@ -465,7 +465,7 @@ static int complete_line(struct line_state *ls)
         int nwritten;
         char c = 0;
 
-        completion_callback(ls->buf, &lc);
+        completion_callback(ls->buf, ls->pos, &lc);
         if (lc.len == 0) {
                 line_beep();
         } else {

@@ -57,7 +57,7 @@ extern "C" {
 #include <stddef.h>
 
 typedef struct line_completions line_completions;
-typedef void (line_completion_callback) (const char *, line_completions *);
+typedef void (line_completion_callback) (const char *, size_t pos, line_completions *);
 
 void line_set_vi_mode(int on);
 int  line_get_vi_mode(void);
