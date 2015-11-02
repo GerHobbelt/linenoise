@@ -829,7 +829,7 @@ void line_edit_delete_prev_word(struct line_state *l)
  **/
 static int line_edit_process_vi(struct line_state *l, char c, char *buf){
         switch(c){
-        case 'x': 
+        case 'x': /*delete char*/
                 if(l->pos && (l->pos == l->len))
                         l->pos--;
                 (void)line_edit_delete_char(l);
@@ -883,6 +883,15 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
         case 'k': /*move up*/
                 line_edit_history_next(l, LINENOISE_HISTORY_PREV);
                 break;
+        case 'r':
+        {       /*replace a character*/
+                int replace = 0;
+                if (read(l->ifd, &replace, 1) == -1)
+                        break;
+                buf[l->pos] = replace;
+                refresh_line(l);
+                break;
+        }
         case 'j': /*move down*/
                 line_edit_history_next(l, LINENOISE_HISTORY_NEXT);
                 break;
