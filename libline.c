@@ -115,6 +115,13 @@
  *    Sequence: ESC [ 2 J
  *    Effect: clear the whole screen
  * 
+ * Useful links for porting to Windows:
+ * <https://stackoverflow.com/questions/24708700/c-detect-when-user-presses-arrow-key>
+ * <https://msdn.microsoft.com/en-us/library/windows/desktop/ms683462%28v=vs.85%29.aspx>
+ * <https://msdn.microsoft.com/en-us/library/windows/desktop/ms686033%28v=vs.85%29.aspx>
+ * <https://msdn.microsoft.com/en-us/library/windows/desktop/ms683231%28v=vs.85%29.aspx>
+ *
+
  */
 
 #include "libline.h"
@@ -307,6 +314,7 @@ static int enable_raw_mode(int fd)
         return -1;
 #elif _WIN32
 	(void)fd; /* parameter not used */
+ 	SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), 0);
         if (!atexit_registered) {
                 atexit(line_at_exit);
                 atexit_registered = 1;
@@ -517,7 +525,7 @@ static int complete_line(struct line_state *ls)
         }
 
         free_completions(&lc);
-        return c;               /* Return last read character */
+        return c; /* Return last read character */
 }
 
 /** 
