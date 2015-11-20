@@ -306,9 +306,9 @@ static int enableRawMode(int fd) {
     if (tcgetattr(fd,&orig_termios) == -1) goto fatal;
 
     raw = orig_termios;  /* modify the original mode */
-    /* input modes: no break, no CR to NL, no parity check, no strip char,
-     * no start/stop output control. */
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    /* input modes: no break, no CR to NL, no parity check, no strip char
+     */
+    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP);
     /* output modes - disable post processing */
     raw.c_oflag &= ~(OPOST);
     /* control modes - set 8 bit chars */
