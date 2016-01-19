@@ -1026,6 +1026,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     return l.len;
 }
 
+#if 0
 /* This special mode is used by linenoise in order to print scan codes
  * on screen for debugging / development purposes. It is implemented
  * by the linenoise_example program using the --keycodes option. */
@@ -1053,6 +1054,7 @@ void linenoisePrintKeyCodes(void) {
     }
     disableRawMode(STDIN_FILENO);
 }
+#endif
 
 /* This function calls the line editing function linenoiseEdit() using
  * the STDIN file descriptor set in raw mode. */
