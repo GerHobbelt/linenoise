@@ -1073,7 +1073,7 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt) {
     if (!isatty(INPUT_FD)) {
         /* Not a tty: read from file / pipe. */
         int rlen;
-        if((rlen = read(INPUT_FD, buf, buflen)) == -1)
+        if((rlen = read(INPUT_FD, buf, buflen)) <= 0)
             return -1;
         buf[rlen < buflen ? rlen : rlen - 1] = '\0';
         count = rlen < buflen ? rlen : rlen - 1;
@@ -1106,7 +1106,7 @@ char *linenoise(const char *prompt) {
         write(OUTPUT_FD, prompt, strlen(prompt));
         fsync(OUTPUT_FD);
         int rlen;
-        if((rlen = read(INPUT_FD, buf, LINENOISE_MAX_LINE)) == -1)
+        if((rlen = read(INPUT_FD, buf, LINENOISE_MAX_LINE)) <= 0)
             return NULL;
         buf[rlen < LINENOISE_MAX_LINE ? rlen : rlen - 1] = '\0';
         len = rlen < LINENOISE_MAX_LINE ? rlen : rlen - 1;
