@@ -132,6 +132,11 @@ static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
 
+static int INPUT_FD = STDIN_FILENO;
+static int OUTPUT_FD = STDOUT_FILENO;
+static int ERROR_FD = STDERR_FILENO;
+
+
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
  * functionalities. */
@@ -298,7 +303,7 @@ static int isUnsupportedTerm(void) {
 static int enableRawMode(int fd) {
     struct termios raw;
 
-    if (!isatty(STDIN_FILENO)) goto fatal;
+    if (!isatty(INPUT_FD)) goto fatal;
     if (!atexit_registered) {
         atexit(linenoiseAtExit);
         atexit_registered = 1;
@@ -398,7 +403,7 @@ failed:
 
 /* Clear the screen. Used to handle ctrl+l */
 void linenoiseClearScreen(void) {
-    if (write(STDOUT_FILENO,"\x1b[H\x1b[2J",7) <= 0) {
+    if (write(OUTPUT_FD,"\x1b[H\x1b[2J",7) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
 }
@@ -406,8 +411,8 @@ void linenoiseClearScreen(void) {
 /* Beep, used for completion when there is nothing to complete or when all
  * the choices were already shown. */
 static void linenoiseBeep(void) {
-    fprintf(stderr, "\x7");
-    fflush(stderr);
+    write(ERROR_FD, "\x7", strlen("\x7"));
+    fsync(ERROR_FD);
 }
 
 /* ============================== Completion ================================ */
@@ -1065,20 +1070,23 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt) {
         errno = EINVAL;
         return -1;
     }
-    if (!isatty(STDIN_FILENO)) {
+    if (!isatty(INPUT_FD)) {
         /* Not a tty: read from file / pipe. */
-        if (fgets(buf, buflen, stdin) == NULL) return -1;
-        count = strlen(buf);
+        int rlen;
+        if((rlen = read(INPUT_FD, buf, buflen)) == -1)
+            return -1;
+        buf[rlen < buflen ? rlen : rlen - 1] = '\0';
+        count = rlen < buflen ? rlen : rlen - 1;
         if (count && buf[count-1] == '\n') {
             count--;
             buf[count] = '\0';
         }
     } else {
         /* Interactive editing. */
-        if (enableRawMode(STDIN_FILENO) == -1) return -1;
-        count = linenoiseEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
-        disableRawMode(STDIN_FILENO);
-        printf("\n");
+        if (enableRawMode(INPUT_FD) == -1) return -1;
+        count = linenoiseEdit(INPUT_FD, OUTPUT_FD, buf, buflen, prompt);
+        disableRawMode(INPUT_FD);
+        write(OUTPUT_FD, "\n", 1);
     }
     return count;
 }
@@ -1095,10 +1103,13 @@ char *linenoise(const char *prompt) {
     if (isUnsupportedTerm()) {
         size_t len;
 
-        printf("%s",prompt);
-        fflush(stdout);
-        if (fgets(buf,LINENOISE_MAX_LINE,stdin) == NULL) return NULL;
-        len = strlen(buf);
+        write(OUTPUT_FD, prompt, strlen(prompt));
+        fsync(OUTPUT_FD);
+        int rlen;
+        if((rlen = read(INPUT_FD, buf, LINENOISE_MAX_LINE)) == -1)
+            return NULL;
+        buf[rlen < LINENOISE_MAX_LINE ? rlen : rlen - 1] = '\0';
+        len = rlen < LINENOISE_MAX_LINE ? rlen : rlen - 1;
         while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             len--;
             buf[len] = '\0';
@@ -1127,7 +1138,7 @@ static void freeHistory(void) {
 
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void linenoiseAtExit(void) {
-    disableRawMode(STDIN_FILENO);
+    disableRawMode(INPUT_FD);
     freeHistory();
 }
 
@@ -1233,4 +1244,16 @@ int linenoiseHistoryLoad(const char *filename) {
     }
     fclose(fp);
     return 0;
+}
+
+int *linenoiseInputFD() {
+    return &INPUT_FD;
+}
+
+int *linenoiseOutputFD() {
+    return &OUTPUT_FD;
+}
+
+int *linenoiseErrorFD() {
+    return &ERROR_FD;
 }
