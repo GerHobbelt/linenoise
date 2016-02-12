@@ -426,6 +426,17 @@ static void freeCompletions(linenoiseCompletions *lc) {
         free(lc->cvec);
 }
 
+static void showAllCandidates(linenoiseCompletions *lc) {
+    write(OUTPUT_FD, "\n", strlen("\n"));
+
+    size_t index;
+    for(index = 0; index < lc->len; index++) {
+        const char *c = lc->cvec[index];
+        write(OUTPUT_FD, c, strlen(c));
+        write(OUTPUT_FD, "\n", strlen("\n"));
+    }
+}
+
 /* This is an helper function for linenoiseEdit() and is called when the
  * user types the <tab> key in order to complete the string currently in the
  * input.
@@ -443,6 +454,12 @@ static int completeLine(struct linenoiseState *ls) {
         linenoiseBeep();
     } else {
         size_t stop = 0, i = 0;
+
+        if(lc.len > 1) {
+            showAllCandidates(&lc);
+            refreshLine(ls);
+            stop = 1;
+        }
 
         while(!stop) {
             /* Show completion or original buffer */
@@ -467,6 +484,12 @@ static int completeLine(struct linenoiseState *ls) {
 
             switch(c) {
                 case 9: /* tab */
+                    if(lc.len == 1) {
+                        nwritten = snprintf(ls->buf,ls->buflen,"%s",lc.cvec[i]);
+                        ls->len = ls->pos = nwritten;
+                        return 0;
+                    }
+
                     i = (i+1) % (lc.len+1);
                     if (i == lc.len) linenoiseBeep();
                     break;
