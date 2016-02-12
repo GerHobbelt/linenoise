@@ -1098,8 +1098,8 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt) {
         int rlen;
         if((rlen = read(INPUT_FD, buf, buflen)) <= 0)
             return -1;
-        buf[rlen < buflen ? rlen : rlen - 1] = '\0';
-        count = rlen < buflen ? rlen : rlen - 1;
+        buf[(unsigned int)rlen < buflen ? rlen : rlen - 1] = '\0';
+        count = (unsigned int)rlen < buflen ? rlen : rlen - 1;
         if (count && buf[count-1] == '\n') {
             count--;
             buf[count] = '\0';
