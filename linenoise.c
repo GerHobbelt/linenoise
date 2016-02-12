@@ -427,13 +427,13 @@ static void freeCompletions(linenoiseCompletions *lc) {
 }
 
 static void showAllCandidates(linenoiseCompletions *lc) {
-    write(OUTPUT_FD, "\n", strlen("\n"));
+    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
 
     size_t index;
     for(index = 0; index < lc->len; index++) {
         const char *c = lc->cvec[index];
         write(OUTPUT_FD, c, strlen(c));
-        write(OUTPUT_FD, "\n", strlen("\n"));
+        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
     }
 }
 
