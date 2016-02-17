@@ -449,7 +449,7 @@ static int completeLine(struct linenoiseState *ls) {
     int c = 0;
     char cbuf[32]; // large enough for any encoding?
 
-    completionCallback(ls->buf,&lc);
+    completionCallback(ls->buf, ls->pos, &lc);
     if (lc.len == 0) {
         linenoiseBeep();
     } else {
