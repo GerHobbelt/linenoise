@@ -427,17 +427,6 @@ static void freeCompletions(linenoiseCompletions *lc) {
         free(lc->cvec);
 }
 
-static void showAllCandidates(linenoiseCompletions *lc) {
-    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
-
-    size_t index;
-    for(index = 0; index < lc->len; index++) {
-        const char *c = lc->cvec[index];
-        write(OUTPUT_FD, c, strlen(c));
-        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
-    }
-}
-
 #if 0
 static FILE *logfp = NULL;
 #define logprintf(fmt, ...) \
@@ -448,6 +437,47 @@ do { \
 #else
 #define logprintf(fmt, ...)
 #endif
+
+static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
+    unsigned int *sizeTable = malloc(sizeof(unsigned int) * lc->len);
+
+    // compute maximum size of candidate
+    size_t maxSize = 0;
+    size_t index;
+    for(index = 0; index < lc->len; index++) {
+        size_t s = strlen(lc->cvec[index]);
+        if(s > maxSize) {
+            maxSize = s;
+        }
+        sizeTable[index] = s;
+    }
+
+    maxSize += 2;
+    const unsigned int columCount = cols / maxSize;
+
+    logprintf("cols: %lu\n", cols);
+    logprintf("maxSize: %lu\n", maxSize);
+    logprintf("columCount: %u\n", columCount);
+
+    // show candidates
+    for(index = 0; index < lc->len; index++) {
+        if(index % columCount == 0) {
+            write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+        }
+
+        const char *c = lc->cvec[index];
+        write(OUTPUT_FD, c, sizeTable[index]);
+
+        // write spaces
+        unsigned int j;
+        for(j = 0; j < maxSize - sizeTable[index]; j++) {
+            write(OUTPUT_FD, " ", 1);
+        }
+    }
+    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+
+    free(sizeTable);
+}
 
 static char *computeCommonPrefix(const linenoiseCompletions *lc, size_t *len) {
     if(lc->len == 0) {
@@ -559,7 +589,7 @@ static int completeLine(struct linenoiseState *ls) {
 
         insertEstimatedSuffix(ls, &lc);
         if(lc.len > 1) {
-            showAllCandidates(&lc);
+            showAllCandidates(ls->cols, &lc);
             refreshLine(ls);
             stop = 1;
         } else if(lc.len == 1) {
