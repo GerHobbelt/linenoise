@@ -178,6 +178,7 @@ enum KEY_ACTION{
 };
 
 static void linenoiseAtExit(void);
+int linenoiseEditInsert(struct linenoiseState *l, const char *cbuf, int clen);
 int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
 
@@ -437,6 +438,107 @@ static void showAllCandidates(linenoiseCompletions *lc) {
     }
 }
 
+#if 0
+static FILE *logfp = NULL;
+#define logprintf(fmt, ...) \
+do { \
+    if(logfp == NULL) {logfp = fopen("/dev/ttys000", "w"); } \
+    fprintf(logfp, fmt, ## __VA_ARGS__);\
+} while(0)
+#else
+#define logprintf(fmt, ...)
+#endif
+
+static char *computeCommonPrefix(const linenoiseCompletions *lc, size_t *len) {
+    if(lc->len == 0) {
+        *len = 0;
+        return NULL;
+    }
+    if(lc->len == 1) {
+        *len = strlen(lc->cvec[0]);
+        return strdup(lc->cvec[0]);
+    }
+
+    size_t prefixSize;
+    for(prefixSize = 0; ; prefixSize++) {
+        int stop = 0;
+        const char ch = lc->cvec[0][prefixSize];
+        size_t i;
+        for(i = 0; i < lc->len; i++) {
+            const char *str = lc->cvec[i];
+            if(str[0] == '\0' || prefixSize >= strlen(str) || ch != str[prefixSize]) {
+                stop = 1;
+                break;
+            }
+        }
+
+        if(stop) {
+            break;
+        }
+    }
+
+    if(prefixSize == 0) {
+        *len = 0;
+        return NULL;
+    }
+
+    char *prefix = malloc(sizeof(char) * (prefixSize + 1));
+    memcpy(prefix, lc->cvec[0], sizeof(char) * prefixSize);
+    prefix[prefixSize] = '\0';
+    *len = prefixSize;
+    return prefix;
+}
+
+static int insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompletions *lc) {
+    size_t len;
+    char *prefix = computeCommonPrefix(lc, &len);
+    if(prefix == NULL) {
+        return 0;
+    }
+
+    logprintf("#prefix: %s\n", prefix);
+    logprintf("pos: %ld\n", ls->pos);
+
+
+    // compute suffix
+    const char oldCh = ls->buf[ls->pos];
+    ls->buf[ls->pos] = '\0';
+    int matched = 0;
+
+    size_t offset;
+    for(offset = ls->pos - 1; ; offset--) {
+        const char *curStr = ls->buf + offset;
+        logprintf("curStr: %s\n", curStr);
+        const char *ptr = strstr(prefix, curStr);
+        if(ptr == NULL) {
+            offset++;
+            break;
+        }
+        if(ptr == prefix) {
+            matched = 1;
+        }
+
+        if(offset == 0) {
+            break;
+        }
+    }
+
+    logprintf("offset: %ld\n", offset);
+    if(matched) {
+        size_t suffixSize = len - (ls->pos - offset);
+        logprintf("suffix size: %ld\n", suffixSize);
+        char *inserting = malloc(sizeof(char) * suffixSize);
+        memcpy(inserting, prefix + (len - suffixSize), suffixSize);
+        linenoiseEditInsert(ls, inserting, suffixSize);
+        free(inserting);
+    }
+
+    ls->buf[ls->pos] = oldCh;
+    free(prefix);
+
+    return 0;
+}
+
 /* This is an helper function for linenoiseEdit() and is called when the
  * user types the <tab> key in order to complete the string currently in the
  * input.
@@ -455,9 +557,13 @@ static int completeLine(struct linenoiseState *ls) {
     } else {
         size_t stop = 0, i = 0;
 
+        insertEstimatedSuffix(ls, &lc);
         if(lc.len > 1) {
             showAllCandidates(&lc);
             refreshLine(ls);
+            stop = 1;
+        } else if(lc.len == 1) {
+            linenoiseEditInsert(ls, " ", 1);
             stop = 1;
         }
 
@@ -484,12 +590,6 @@ static int completeLine(struct linenoiseState *ls) {
 
             switch(c) {
                 case 9: /* tab */
-                    if(lc.len == 1) {
-                        nwritten = snprintf(ls->buf,ls->buflen,"%s",lc.cvec[i]);
-                        ls->len = ls->pos = nwritten;
-                        return 0;
-                    }
-
                     i = (i+1) % (lc.len+1);
                     if (i == lc.len) linenoiseBeep();
                     break;
