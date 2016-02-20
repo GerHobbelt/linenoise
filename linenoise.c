@@ -441,7 +441,7 @@ do { \
 static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     unsigned int *sizeTable = malloc(sizeof(unsigned int) * lc->len);
 
-    // compute maximum size of candidate
+    // compute maximum length of candidate
     size_t maxSize = 0;
     size_t index;
     for(index = 0; index < lc->len; index++) {
@@ -459,22 +459,45 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     logprintf("maxSize: %lu\n", maxSize);
     logprintf("columCount: %u\n", columCount);
 
-    // show candidates
-    for(index = 0; index < lc->len; index++) {
-        if(index % columCount == 0) {
-            write(OUTPUT_FD, "\r\n", strlen("\r\n"));
-        }
+    // compute raw size
+    size_t rawSize = 1;
+    while(1) {
+        size_t a = lc->len / rawSize;
+        size_t b = lc->len % rawSize;
 
-        const char *c = lc->cvec[index];
-        write(OUTPUT_FD, c, sizeTable[index]);
-
-        // write spaces
-        unsigned int j;
-        for(j = 0; j < maxSize - sizeTable[index]; j++) {
-            write(OUTPUT_FD, " ", 1);
+        if(a + b <= columCount) {
+            break;
         }
+        rawSize++;
     }
+
+    logprintf("rawSize: %u\n", rawSize);
+
+    // show candidates
     write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+    for(index = 0; index < rawSize; index++) {
+        size_t cadidateIndex = 0;
+        size_t j = 0;
+        while(1) {
+            cadidateIndex = j * rawSize + index;
+            if(cadidateIndex >= lc->len) {
+                break;
+            }
+
+            // print candidate
+            const char *c = lc->cvec[cadidateIndex];
+            write(OUTPUT_FD, c, sizeTable[cadidateIndex]);
+
+            // print spaces
+            unsigned int s;
+            for(s = 0; s < maxSize - sizeTable[cadidateIndex]; s++) {
+                write(OUTPUT_FD, " ", 1);
+            }
+
+            j++;
+        }
+        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+    }
 
     free(sizeTable);
 }
