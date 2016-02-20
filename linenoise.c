@@ -609,7 +609,10 @@ static int completeLine(struct linenoiseState *ls) {
     if(lc.len == 0) {
         linenoiseBeep();
     } else if(lc.len == 1) {
-        linenoiseEditInsert(ls, " ", 1);
+        size_t csize = strlen(lc.cvec[0]);
+        if(lc.cvec[0][csize - 1] != '/') {
+            linenoiseEditInsert(ls, " ", 1);
+        }
     } else {
         int show = 1;
         if(lc.len >= 100) {
