@@ -460,15 +460,14 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     logprintf("columCount: %u\n", columCount);
 
     // compute raw size
-    size_t rawSize = 1;
-    while(1) {
+    size_t rawSize;
+    for(rawSize = 1; rawSize < lc->len; rawSize++) {
         size_t a = lc->len / rawSize;
         size_t b = lc->len % rawSize;
-
-        if(a + b <= columCount) {
+        size_t c = b == 0 ? 0 : 1;
+        if(a + c <= columCount) {
             break;
         }
-        rawSize++;
     }
 
     logprintf("rawSize: %zu\n", rawSize);
