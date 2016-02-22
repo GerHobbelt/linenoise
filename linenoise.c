@@ -431,7 +431,7 @@ static void freeCompletions(linenoiseCompletions *lc) {
 static FILE *logfp = NULL;
 #define logprintf(fmt, ...) \
 do { \
-    if(logfp == NULL) {logfp = fopen("/dev/ttys000", "w"); } \
+    if(logfp == NULL) {logfp = fopen("/dev/ttys001", "w"); } \
     fprintf(logfp, fmt, ## __VA_ARGS__);\
 } while(0)
 #else
@@ -471,7 +471,7 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
         rawSize++;
     }
 
-    logprintf("rawSize: %u\n", rawSize);
+    logprintf("rawSize: %zu\n", rawSize);
 
     // show candidates
     write(OUTPUT_FD, "\r\n", strlen("\r\n"));
@@ -584,6 +584,8 @@ static int insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompl
         memcpy(inserting, prefix + (len - suffixSize), suffixSize);
         linenoiseEditInsert(ls, inserting, suffixSize);
         free(inserting);
+    } else if(lc->len == 1) {   // if candidate dose not match previous token, insert it.
+        linenoiseEditInsert(ls, prefix, len);
     }
 
     ls->buf[ls->pos] = oldCh;
