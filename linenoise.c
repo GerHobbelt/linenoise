@@ -598,11 +598,10 @@ static int insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompl
  *
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
-static int completeLine(struct linenoiseState *ls) {
+static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
     linenoiseCompletions lc = { 0, NULL };
-    int nread, nwritten;
+    int nread;
     int c = 0;
-    char cbuf[32]; // large enough for any encoding?
 
     completionCallback(ls->buf, ls->pos, &lc);
     insertEstimatedSuffix(ls, &lc);
@@ -614,37 +613,50 @@ static int completeLine(struct linenoiseState *ls) {
             linenoiseEditInsert(ls, " ", 1);
         }
     } else {
-        int show = 1;
-        if(lc.len >= 100) {
-            char msg[256];
-            snprintf(msg, 256, "\r\nDisplay all %zu possibilities? (y or n) ", lc.len);
-            write(OUTPUT_FD, msg, strlen(msg));
+        while(1) {
+            nread = readCode(ls->ifd, cbuf, 32, &c);
+            if (nread <= 0) {
+                c = -1;
+                goto END;
+            }
+            if(c != TAB) {
+                goto END;
+            }
 
-            while(1) {
-                nread = readCode(ls->ifd,cbuf,sizeof(cbuf),&c);
-                if (nread <= 0) {
-                    freeCompletions(&lc);
-                    return -1;
-                }
-                if(c == 'y') {
-                    break;
-                } else if(c == 'n') {
-                    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
-                    show = 0;
-                    break;
-                } else {
-                    linenoiseBeep();
+            int show = 1;
+            if(lc.len >= 100) {
+                char msg[256];
+                snprintf(msg, 256, "\r\nDisplay all %zu possibilities? (y or n) ", lc.len);
+                write(OUTPUT_FD, msg, strlen(msg));
+
+                while(1) {
+                    nread = readCode(ls->ifd, cbuf, 32, &c);
+                    if (nread <= 0) {
+                        c = -1;
+                        goto END;
+                    }
+                    if(c == 'y') {
+                        break;
+                    } else if(c == 'n') {
+                        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+                        show = 0;
+                        break;
+                    } else if(c == CTRL_C) {
+                        goto END;
+                    } else {
+                        linenoiseBeep();
+                    }
                 }
             }
-            c = 0;
-        }
 
-        if(show) {
-            showAllCandidates(ls->cols, &lc);
+            if(show) {
+                showAllCandidates(ls->cols, &lc);
+            }
+            refreshLine(ls);
         }
-        refreshLine(ls);
     }
 
+    END:
     freeCompletions(&lc);
     return c; /* Return last read character */
 }
@@ -1051,7 +1063,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
         if (c == 9 && completionCallback != NULL) {
-            c = completeLine(&l);
+            c = completeLine(&l, cbuf);
             /* Return on errors */
             if (c < 0) return l.len;
             /* Read next character when 0 */
