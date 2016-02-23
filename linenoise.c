@@ -541,11 +541,14 @@ static char *computeCommonPrefix(const linenoiseCompletions *lc, size_t *len) {
     return prefix;
 }
 
-static int insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompletions *lc) {
+/**
+ * return token start cursor.
+ */
+static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompletions *lc) {
     size_t len;
     char *prefix = computeCommonPrefix(lc, &len);
     if(prefix == NULL) {
-        return 0;
+        return ls->pos;
     }
 
     logprintf("#prefix: %s\n", prefix);
@@ -590,7 +593,7 @@ static int insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCompl
     ls->buf[ls->pos] = oldCh;
     free(prefix);
 
-    return 0;
+    return matched ? offset : ls->pos;
 }
 
 /* This is an helper function for linenoiseEdit() and is called when the
@@ -605,7 +608,7 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
     int c = 0;
 
     completionCallback(ls->buf, ls->pos, &lc);
-    insertEstimatedSuffix(ls, &lc);
+    int offset = insertEstimatedSuffix(ls, &lc);
     if(lc.len == 0) {
         linenoiseBeep();
     } else if(lc.len == 1) {
@@ -614,6 +617,48 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
             linenoiseEditInsert(ls, " ", 1);
         }
     } else {
+        nread = readCode(ls->ifd, cbuf, 32, &c);
+        if (nread <= 0) {
+            c = -1;
+            goto END;
+        }
+        if(c != TAB) {
+            goto END;
+        }
+
+        int show = 1;
+        if(lc.len >= 100) {
+            char msg[256];
+            snprintf(msg, 256, "\r\nDisplay all %zu possibilities? (y or n) ", lc.len);
+            write(OUTPUT_FD, msg, strlen(msg));
+
+            while(1) {
+                nread = readCode(ls->ifd, cbuf, 32, &c);
+                if (nread <= 0) {
+                    c = -1;
+                    goto END;
+                }
+                if(c == 'y') {
+                    break;
+                } else if(c == 'n') {
+                    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+                    show = 0;
+                    break;
+                } else if(c == CTRL_C) {
+                    goto END;
+                } else {
+                    linenoiseBeep();
+                }
+            }
+        }
+
+        if(show) {
+            showAllCandidates(ls->cols, &lc);
+        }
+        refreshLine(ls);
+
+        // rotate candidates
+        size_t rotateIndex = 0;
         while(1) {
             nread = readCode(ls->ifd, cbuf, 32, &c);
             if (nread <= 0) {
@@ -624,36 +669,17 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
                 goto END;
             }
 
-            int show = 1;
-            if(lc.len >= 100) {
-                char msg[256];
-                snprintf(msg, 256, "\r\nDisplay all %zu possibilities? (y or n) ", lc.len);
-                write(OUTPUT_FD, msg, strlen(msg));
-
-                while(1) {
-                    nread = readCode(ls->ifd, cbuf, 32, &c);
-                    if (nread <= 0) {
-                        c = -1;
-                        goto END;
-                    }
-                    if(c == 'y') {
-                        break;
-                    } else if(c == 'n') {
-                        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
-                        show = 0;
-                        break;
-                    } else if(c == CTRL_C) {
-                        goto END;
-                    } else {
-                        linenoiseBeep();
-                    }
-                }
-            }
-
-            if(show) {
-                showAllCandidates(ls->cols, &lc);
+            int written = snprintf(ls->buf + offset, ls->buflen - offset, "%s", lc.cvec[rotateIndex]);
+            if(written >= 0) {
+                ls->len = ls->pos = offset + written;
             }
             refreshLine(ls);
+
+            if(rotateIndex == lc.len - 1) {
+                rotateIndex = 0;
+                continue;
+            }
+            rotateIndex++;
         }
     }
 
