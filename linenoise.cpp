@@ -116,7 +116,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #else
-#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
