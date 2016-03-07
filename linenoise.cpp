@@ -1335,6 +1335,10 @@ process_char:
                 int rlen = 0;
                 int searchpos = history_len - 1;
 
+                // Backup the prompt while we switch to the reverse-i-search prompt
+                const auto oldprompt = current->prompt;
+                current->prompt = rprompt;
+
                 rbuf[0] = 0;
                 while (1) {
                     int n = 0;
@@ -1413,6 +1417,7 @@ process_char:
                         rbuf[rlen] = 0;
                     }
                 }
+                current->prompt = oldprompt;	// Restore the original prompt
                 if (c == ctrl('G') || c == ctrl('C')) {
                     /* ctrl-g terminates the search with no effect */
                     set_current(current, "");
@@ -1889,7 +1894,7 @@ namespace linenoisepp
 			if(noLineEnd)
 				outputString(context, "\n", 1);
 			refreshLine(context->prompt, context);
-			// TODO fix refresh when in completion mode or search mode
+			// TODO fix refresh when in completion mode
 		}
 		else
 		{
