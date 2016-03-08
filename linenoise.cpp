@@ -1185,20 +1185,23 @@ static int completeLine(struct current *current) {
     } else {
         size_t stop = 0, i = 0;
 
+        // Make a backup of the context. Note that it must be restored in each exit path of the loop.
+        struct current backup = *current;
+
         while(!stop) {
             /* Show completion or original buffer */
             if (i < lc.len) {
-                struct current tmp = *current;
-                tmp.buf = lc.cvec[i];
-                tmp.pos = tmp.len = strlen(tmp.buf);
-                tmp.chars = utf8_strlen(tmp.buf, tmp.len);
-                refreshLine(current->prompt, &tmp);
+                current->buf = lc.cvec[i];
+                current->pos = current->len = strlen(current->buf);
+                current->chars = utf8_strlen(current->buf, current->len);
             } else {
-                refreshLine(current->prompt, current);
+                *current = backup;
             }
+            refreshLine(current->prompt, current);
 
             c = fd_read(current);
             if (c == -1) {
+                *current = backup;
                 break;
             }
 
@@ -1209,6 +1212,7 @@ static int completeLine(struct current *current) {
                     break;
                 case 27: /* escape */
                     /* Re-show original buffer */
+                    *current = backup;
                     if (i < lc.len) {
                         refreshLine(current->prompt, current);
                     }
@@ -1216,6 +1220,7 @@ static int completeLine(struct current *current) {
                     break;
                 default:
                     /* Update buffer and return */
+                    *current = backup;
                     if (i < lc.len) {
                         set_current(current,lc.cvec[i]);
                     }
@@ -1894,7 +1899,6 @@ namespace linenoisepp
 			if(noLineEnd)
 				outputString(context, "\n", 1);
 			refreshLine(context->prompt, context);
-			// TODO fix refresh when in completion mode
 		}
 		else
 		{
