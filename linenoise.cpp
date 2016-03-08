@@ -1367,14 +1367,14 @@ process_char:
                         c = check_special(current->fd);
                     }
 #endif
-                    if (c == ctrl('P') || c == SPECIAL_UP) {
+                    if (c == ctrl('P') || c == ctrl('R') || c == SPECIAL_UP) {
                         /* Search for the previous (earlier) match */
                         if (searchpos > 0) {
                             searchpos--;
                         }
                         skipsame = 1;
                     }
-                    else if (c == ctrl('N') || c == SPECIAL_DOWN) {
+                    else if (c == ctrl('N') || c == ctrl('S') || c == SPECIAL_DOWN) {
                         /* Search for the next (later) match */
                         if (searchpos < history_len) {
                             searchpos++;
