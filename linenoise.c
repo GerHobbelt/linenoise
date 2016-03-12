@@ -560,21 +560,23 @@ static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCo
     ls->buf[ls->pos] = '\0';
     int matched = 0;
 
-    size_t offset;
-    for(offset = ls->pos - 1; ; offset--) {
-        const char *curStr = ls->buf + offset;
-        logprintf("curStr: %s\n", curStr);
-        const char *ptr = strstr(prefix, curStr);
-        if(ptr == NULL) {
-            offset++;
-            break;
-        }
-        if(ptr == prefix) {
-            matched = 1;
-        }
+    size_t offset = 0;
+    if(ls->pos > 0) {
+        for(offset = ls->pos - 1; ; offset--) {
+            const char *curStr = ls->buf + offset;
+            logprintf("curStr: %s\n", curStr);
+            const char *ptr = strstr(prefix, curStr);
+            if(ptr == NULL) {
+                offset++;
+                break;
+            }
+            if(ptr == prefix) {
+                matched = 1;
+            }
 
-        if(offset == 0) {
-            break;
+            if(offset == 0) {
+                break;
+            }
         }
     }
 
