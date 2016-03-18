@@ -589,9 +589,6 @@ static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCo
         linenoiseEditInsert(ls, inserting, suffixSize);
         free(inserting);
     } else if(lc->len == 1) {   // if candidate dose not match previous token, insert it.
-        if(ls->pos > 0 && ls->buf[ls->pos - 1] != ' ') {
-            linenoiseEditInsert(ls, " ", 1);    // insert space
-        }
         linenoiseEditInsert(ls, prefix, len);
     }
 
