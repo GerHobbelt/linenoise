@@ -145,6 +145,12 @@
 #define true 1
 #define false 0
 
+#ifdef _UNICODE
+#define TS_SPEC "ls"
+#else
+#define TS_SPEC "s"
+#endif
+
 #define uchar_t TCHAR
 #define char_t TCHAR
 #define charpos_t size_t
@@ -181,6 +187,7 @@
 #define _fgetts fgets
 #define _tcschr strchr
 #define _T(x) x
+#define TS_SPEC "s"
 #define uchar_t unsigned char
 #define char_t char
 #define charpos_t size_t
@@ -1112,8 +1119,8 @@ static int completeLine(struct linenoiseState *ls) {
             if (real_index < ls->comp.len) {
                 had_eol = false;
                 if (column_align > 0)
-                    _tprintf(_T("%-*s"), (int)column_align, _T(""));
-                _tprintf(_T("%s"), ls->comp.cvec[real_index].suggestion);
+                    _tprintf(_T("%-*") _T(TS_SPEC), (int)column_align, _T(""));
+                _tprintf(_T("%") _T(TS_SPEC), ls->comp.cvec[real_index].suggestion);
                 column_align = colSize - ls->comp.cvec[real_index].suggestion_charlen;
                 if ((i % cols) == (cols - 1)) {
                     had_eol = true;
@@ -2552,7 +2559,7 @@ static int setSearchPrompt(struct linenoiseState *l)
     }
     if (l->hist_search.text.buf != NULL)
 #ifdef _WIN32
-        _sntprintf_s(newprompt, promptlen, _TRUNCATE, _T("(reverse-i-search`%s'): "), l->hist_search.text.buf);
+        _sntprintf_s(newprompt, promptlen, _TRUNCATE, _T("(reverse-i-search`%") _T(TS_SPEC) _T("'): "), l->hist_search.text.buf);
 #else
         snprintf(newprompt, promptlen, _T("(reverse-i-search`%s'): "), l->hist_search.text.buf);
 #endif
@@ -2834,7 +2841,7 @@ char_t *linenoise() {
             return NULL;
         }
 
-        _tprintf(_T("%s"), state.prompt.buf);
+        _tprintf(_T("%") _T(TS_SPEC), state.prompt.buf);
         fflush(stdout);
         if (_fgetts(buf,LINENOISE_LINE_INIT_MAX_AND_GROW,stdin) == NULL) {
             if (state.is_cancelled) {
@@ -3103,7 +3110,7 @@ int linenoiseHistorySave(const char_t *filename) {
 #endif
     if (fp == NULL) return -1;
     for (j = 0; j < history_len; j++)
-        _ftprintf_s(fp, _T("%s\n"), history[j]);
+        _ftprintf_s(fp, _T("%") _T(TS_SPEC) _T("\n"), history[j]);
     fclose(fp);
     return 0;
 }
