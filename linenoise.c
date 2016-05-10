@@ -361,7 +361,7 @@ struct linenoiseState {
     HANDLE wakeup_event;    /* Wake-up event for console signals. */
 #ifdef __cplusplus_cli
     gcroot<ConsoleHandler^> *console_handler_ptr;
-    System::IntPtr console_handler_intptr;
+    gcroot<System::IntPtr^> *console_handler_intptr;
 #endif
 #else
     int fd;             /* Terminal file descriptor. */
@@ -715,7 +715,9 @@ static bool blockSignals(struct linenoiseState *ls) {
         errno_t old_errno = getError();
 #ifdef _WIN32
 #ifdef __cplusplus_cli
-        SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(ls->console_handler_intptr.ToPointer()), TRUE);
+        if (ls->console_handler_intptr != nullptr) {
+            SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>((*ls->console_handler_intptr)->ToPointer()), TRUE);
+        }
 #else
         SetConsoleCtrlHandler(console_handler, TRUE);
 #endif
@@ -743,7 +745,9 @@ static bool revertSignals(struct linenoiseState *ls) {
 #ifdef _WIN32
         int i;
 #ifdef __cplusplus_cli
-        SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>(ls->console_handler_intptr.ToPointer()), FALSE);
+        if (ls->console_handler_intptr != nullptr) {
+            SetConsoleCtrlHandler(static_cast<PHANDLER_ROUTINE>((*ls->console_handler_intptr)->ToPointer()), FALSE);
+        }
 #else
         SetConsoleCtrlHandler(console_handler, FALSE);
 #endif
@@ -2965,9 +2969,9 @@ static int initialize(struct linenoiseState *l)
     l->wakeup_event = CreateEventA(NULL, FALSE, FALSE, NULL);
 #ifdef __cplusplus_cli
     l->console_handler_ptr = new gcroot<ConsoleHandler^>(gcnew ConsoleHandler(console_handler));
-    l->console_handler_intptr =
+    l->console_handler_intptr = new gcroot<System::IntPtr^>(
         System::Runtime::InteropServices::Marshal::GetFunctionPointerForDelegate(
-            static_cast<ConsoleHandler^>(*(l->console_handler_ptr)));
+            static_cast<ConsoleHandler^>(*(l->console_handler_ptr))));
 #endif
 #else
     l->fd = STDIN_FILENO;
@@ -3002,6 +3006,7 @@ static void freeState()
     freeString(&state.rawChar.tempString);
 #ifdef __cplusplus_cli
     delete state.console_handler_ptr;
+    delete state.console_handler_intptr;
 #endif
 #else
     if (state.ansi.ansi_timer_created) {
