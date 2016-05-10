@@ -91,9 +91,11 @@
  * 
  */
 
+#ifndef _WIN32
 #define _POSIX_C_SOURCE 200112L
 #define _XOPEN_SOURCE 500
 #define _BSD_SOURCE
+#endif
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
