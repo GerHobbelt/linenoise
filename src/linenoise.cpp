@@ -1659,6 +1659,13 @@ static char32_t setMetaRoutine(char32_t c) {
 
 #endif  // #ifndef _WIN32
 
+
+static bool wantsToExit = false;
+
+void linenoiseWantToExit(){
+    wantsToExit = true;
+}
+
 // linenoiseReadChar -- read a keystroke or keychord from the keyboard, and
 // translate it
 // into an encoded "keystroke".  When convenient, extended keys are translated
@@ -1676,6 +1683,13 @@ static char32_t linenoiseReadChar(void) {
   int modifierKeys = 0;
   bool escSeen = false;
   while (true) {
+    DWORD rc;
+    do {
+        rc = WaitForSingleObject(console_in, 500);
+        if (wantsToExit)
+            return 0;
+    } while (rc == WAIT_TIMEOUT);
+
     ReadConsoleInputW(console_in, &rec, 1, &count);
 #if 0  // helper for debugging keystrokes, display info in the debug "Output"
        // window in the debugger

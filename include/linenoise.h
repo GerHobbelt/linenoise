@@ -68,6 +68,7 @@ int linenoiseBindkeyRemove(int key);
 /* the following is extension to the original linenoise API */
 int linenoiseInstallWindowChangeHandler(void);
 
+void linenoiseWantToExit();
 #ifdef __cplusplus
 }
 #endif
