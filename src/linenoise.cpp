@@ -109,6 +109,7 @@
 #include <sys/ioctl.h>
 #include <cctype>
 #include <wctype.h>
+#include <poll.h>
 
 #endif /* _WIN32 */
 
@@ -131,6 +132,8 @@ using std::unique_ptr;
 using namespace linenoise_ng;
 
 typedef unsigned char char8_t;
+
+static bool wantsToExit = false;
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
@@ -1317,10 +1320,20 @@ static char32_t readUnicodeCharacter(void) {
     char8_t c;
 
     /* Continue reading if interrupted by signal. */
-    ssize_t nread;
+    ssize_t nread = -1;
+    bool again;
     do {
-      nread = read(0, &c, 1);
-    } while ((nread == -1) && (errno == EINTR));
+      struct pollfd fdin;
+      fdin.fd = 0;
+      fdin.events = POLLIN;
+      again = false;
+      if(poll(&fdin, 1, 500) > 0)
+	nread = read(0, &c, 1);
+      else if (wantsToExit)
+	return 0;
+      else
+	again = true;
+    } while (again || ((nread == -1) && (errno == EINTR)));
 
     if (nread <= 0) return 0;
     if (c <= 0x7F) {  // short circuit ASCII
@@ -1659,8 +1672,6 @@ static char32_t setMetaRoutine(char32_t c) {
 
 #endif  // #ifndef _WIN32
 
-
-static bool wantsToExit = false;
 
 void linenoiseWantToExit(){
     wantsToExit = true;
