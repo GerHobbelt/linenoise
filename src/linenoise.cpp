@@ -124,6 +124,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <atomic>
 
 using std::string;
 using std::vector;
@@ -133,7 +134,7 @@ using namespace linenoise_ng;
 
 typedef unsigned char char8_t;
 
-static bool wantsToExit = false;
+static std::atomic<bool> wantsToExit = false;
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
