@@ -68,11 +68,13 @@ int *linenoiseErrorFD();
 typedef size_t (linenoisePrevCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseNextCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseReadCode)(int fd, char *buf, size_t buf_len, int* c);
+typedef size_t (linenoiseStrLen)(const char *str);
 
 void linenoiseSetEncodingFunctions(
     linenoisePrevCharLen *prevCharLenFunc,
     linenoiseNextCharLen *nextCharLenFunc,
-    linenoiseReadCode *readCodeFunc);
+    linenoiseReadCode *readCodeFunc,
+    linenoiseStrLen *strLenFunc);
 
 #ifdef __cplusplus
 }
