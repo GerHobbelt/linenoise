@@ -118,7 +118,6 @@
 #include <unistd.h>
 #include "linenoise.h"
 
-#define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 #define UNUSED(x) (void)(x)
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
@@ -128,9 +127,7 @@ static struct termios orig_termios; /* In order to restore at exit.*/
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static int atexit_registered = 0; /* Register atexit just 1 time. */
-static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
-static int history_len = 0;
-static char **history = NULL;
+static linenoiseHistoryCallback *historyCallback = NULL;
 
 static int INPUT_FD = STDIN_FILENO;
 static int OUTPUT_FD = STDOUT_FILENO;
@@ -179,7 +176,6 @@ enum KEY_ACTION{
 
 static void linenoiseAtExit(void);
 int linenoiseEditInsert(struct linenoiseState *l, const char *cbuf, int clen);
-int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
 
 /* Debugging macro. */
@@ -983,30 +979,27 @@ void linenoiseEditMoveEnd(struct linenoiseState *l) {
     }
 }
 
+void linenoiseSetHistoryCallback(linenoiseHistoryCallback *callback) {
+    historyCallback = callback;
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
 #define LINENOISE_HISTORY_PREV 1
 void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
-    if (history_len > 1) {
-        /* Update the current history entry before to
-         * overwrite it with the next one. */
-        free(history[history_len - 1 - l->history_index]);
-        history[history_len - 1 - l->history_index] = strdup(l->buf);
-        /* Show the new entry */
-        l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
-        if (l->history_index < 0) {
-            l->history_index = 0;
-            return;
-        } else if (l->history_index >= history_len) {
-            l->history_index = history_len-1;
-            return;
-        }
-        strncpy(l->buf,history[history_len - 1 - l->history_index],l->buflen);
+    historyOp op = dir == LINENOISE_HISTORY_NEXT ? LINENOISE_HISTORY_OP_NEXT : LINENOISE_HISTORY_OP_PREV;
+    const char *ret = historyCallback(l->buf, &l->history_index, op);
+    if(ret) {
+        strncpy(l->buf, ret, l->buflen);
         l->buf[l->buflen-1] = '\0';
         l->len = l->pos = strlen(l->buf);
         refreshLine(l);
     }
+}
+
+static void doHistoryOp(historyOp op) {
+    historyCallback(NULL, NULL, op);
 }
 
 /* Delete the character at the right of the cursor without altering the cursor
@@ -1081,7 +1074,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
-    linenoiseHistoryAdd("");
+//    linenoiseHistoryAdd("");
+    doHistoryOp(LINENOISE_HISTORY_OP_INIT);
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
     while(1) {
@@ -1106,8 +1100,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
         switch(c) {
         case ENTER:    /* enter */
-            history_len--;
-            free(history[history_len]);
+//            history_len--;
+//            free(history[history_len]);
+            doHistoryOp(LINENOISE_HISTORY_OP_DELETE);
             if (mlmode) linenoiseEditMoveEnd(&l);
             return (int)l.len;
         case CTRL_C:     /* ctrl-c */
@@ -1122,8 +1117,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (l.len > 0) {
                 linenoiseEditDelete(&l);
             } else {
-                history_len--;
-                free(history[history_len]);
+                doHistoryOp(LINENOISE_HISTORY_OP_DELETE);
                 return -1;
             }
             break;
@@ -1328,126 +1322,9 @@ char *linenoise(const char *prompt) {
 
 /* ================================ History ================================= */
 
-/* Free the history, but does not reset it. Only used when we have to
- * exit() to avoid memory leaks are reported by valgrind & co. */
-static void freeHistory(void) {
-    if (history) {
-        int j;
-
-        for (j = 0; j < history_len; j++)
-            free(history[j]);
-        free(history);
-    }
-}
-
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void linenoiseAtExit(void) {
     disableRawMode(INPUT_FD);
-    freeHistory();
-}
-
-/* This is the API call to add a new entry in the linenoise history.
- * It uses a fixed array of char pointers that are shifted (memmoved)
- * when the history max length is reached in order to remove the older
- * entry and make room for the new one, so it is not exactly suitable for huge
- * histories, but will work well for a few hundred of entries.
- *
- * Using a circular buffer is smarter, but a bit more complex to handle. */
-int linenoiseHistoryAdd(const char *line) {
-    char *linecopy;
-
-    if (history_max_len == 0) return 0;
-
-    /* Initialization on first call. */
-    if (history == NULL) {
-        history = malloc(sizeof(char*)*history_max_len);
-        if (history == NULL) return 0;
-        memset(history,0,(sizeof(char*)*history_max_len));
-    }
-
-    /* Don't add duplicated lines. */
-    if (history_len && !strcmp(history[history_len-1], line)) return 0;
-
-    /* Add an heap allocated copy of the line in the history.
-     * If we reached the max length, remove the older line. */
-    linecopy = strdup(line);
-    if (!linecopy) return 0;
-    if (history_len == history_max_len) {
-        free(history[0]);
-        memmove(history,history+1,sizeof(char*)*(history_max_len-1));
-        history_len--;
-    }
-    history[history_len] = linecopy;
-    history_len++;
-    return 1;
-}
-
-/* Set the maximum length for the history. This function can be called even
- * if there is already some history, the function will make sure to retain
- * just the latest 'len' elements if the new history length value is smaller
- * than the amount of items already inside the history. */
-int linenoiseHistorySetMaxLen(int len) {
-    char **new;
-
-    if (len < 1) return 0;
-    if (history) {
-        int tocopy = history_len;
-
-        new = malloc(sizeof(char*)*len);
-        if (new == NULL) return 0;
-
-        /* If we can't copy everything, free the elements we'll not use. */
-        if (len < tocopy) {
-            int j;
-
-            for (j = 0; j < tocopy-len; j++) free(history[j]);
-            tocopy = len;
-        }
-        memset(new,0,sizeof(char*)*len);
-        memcpy(new,history+(history_len-tocopy), sizeof(char*)*tocopy);
-        free(history);
-        history = new;
-    }
-    history_max_len = len;
-    if (history_len > history_max_len)
-        history_len = history_max_len;
-    return 1;
-}
-
-/* Save the history in the specified file. On success 0 is returned
- * otherwise -1 is returned. */
-int linenoiseHistorySave(const char *filename) {
-    FILE *fp = fopen(filename,"w");
-    int j;
-
-    if (fp == NULL) return -1;
-    for (j = 0; j < history_len; j++)
-        fprintf(fp,"%s\n",history[j]);
-    fclose(fp);
-    return 0;
-}
-
-/* Load the history from the specified file. If the file does not exist
- * zero is returned and no operation is performed.
- *
- * If the file exists and the operation succeeded 0 is returned, otherwise
- * on error -1 is returned. */
-int linenoiseHistoryLoad(const char *filename) {
-    FILE *fp = fopen(filename,"r");
-    char buf[LINENOISE_MAX_LINE];
-
-    if (fp == NULL) return -1;
-
-    while (fgets(buf,LINENOISE_MAX_LINE,fp) != NULL) {
-        char *p;
-
-        p = strchr(buf,'\r');
-        if (!p) p = strchr(buf,'\n');
-        if (p) *p = '\0';
-        linenoiseHistoryAdd(buf);
-    }
-    fclose(fp);
-    return 0;
 }
 
 int *linenoiseInputFD() {
