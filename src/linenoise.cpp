@@ -89,7 +89,7 @@
 #include <conio.h>
 #include <windows.h>
 #include <io.h>
-#if _MSC_VER < 1900
+#if defined (_MSC_VER) && _MSC_VER < 1900 // thanks @Technici4n [180385768a]
 #define snprintf _snprintf  // Microsoft headers use underscores in some names
 #endif
 #define strcasecmp _stricmp
@@ -105,6 +105,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stat.h> // thanks @theopolis [30d97e1d4] from [c894b9e]
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <cctype>
@@ -134,7 +135,7 @@ using namespace linenoise_ng;
 
 typedef unsigned char char8_t;
 
-static std::atomic<bool> wantsToExit = false;
+static std::atomic<bool> wantsToExit(false);
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
@@ -3299,12 +3300,22 @@ char* linenoiseHistoryLine(int index) {
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
 int linenoiseHistorySave(const char* filename) {
+
+#ifndef _WIN32 // port of "insecure history file creation" fix @theopolis [30d97e1d4] from [c894b9e]
+  mode_t old_umask = umask(S_IXUSR|S_IRWXG|S_IRWXO);
+#endif
+
   FILE* fp = fopen(filename, "wt");
+
   if (fp == NULL) {
     return -1;
   }
 
-  for (int j = 0; j < historyLen; ++j) {
+#ifndef _WIN32
+  umask(old_umask);
+  chmod(filename,S_IRUSR|S_IWUSR);
+#endif  for (int j = 0; j < historyLen; ++j) {
+
     if (history[j][0] != '\0') {
       fprintf(fp, "%s\n", history[j]);
     }
@@ -3400,13 +3411,13 @@ int linenoiseInstallWindowChangeHandler(void) {
 }
 
 int linenoiseBindkeyAdd(int key, lineNoiseBindkeyFunction *fn)
-{ 
+{
   if (bindKeyFunctions.find(key) != bindKeyFunctions.end()){
     // the key is already bound
     return -1;
   }
   bindKeyFunctions.insert(std::make_pair(key, fn));
-  return 0; 
+  return 0;
 }
 
 int linenoiseBindkeyRemove(int key)
