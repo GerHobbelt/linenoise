@@ -3316,8 +3316,8 @@ int linenoiseHistorySave(const char* filename) {
 #ifndef _WIN32
   umask(old_umask);
   chmod(filename,S_IRUSR|S_IWUSR);
-#endif  for (int j = 0; j < historyLen; ++j) {
-
+#endif
+  for (int j = 0; j < historyLen; ++j) {
     if (history[j][0] != '\0') {
       fprintf(fp, "%s\n", history[j]);
     }
