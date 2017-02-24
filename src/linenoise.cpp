@@ -89,7 +89,8 @@
 #include <conio.h>
 #include <windows.h>
 #include <io.h>
-#if defined (_MSC_VER) && _MSC_VER < 1900 // thanks @Technici4n [180385768a]
+ // thanks @Technici4n [180385768a]
+#if defined (_MSC_VER) && _MSC_VER < 1900
 #define snprintf _snprintf  // Microsoft headers use underscores in some names
 #endif
 #define strcasecmp _stricmp
@@ -105,7 +106,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stat.h> // thanks @theopolis [30d97e1d4] from [c894b9e]
+ // thanks @theopolis commit [30d97e1d4] from [c894b9e] in linenoise:
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <cctype>
