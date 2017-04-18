@@ -1,0 +1,14 @@
+# vim:tabstop=4:shiftwidth=4:noexpandtab
+
+LT_TARGET:=liblinenoise
+LT_SUBDIRS:=
+
+$(LT_TARGET).TYPE = STATIC_LIB
+$(LT_TARGET).SRC_C = linenoise.c
+$(LT_TARGET).APIS =
+$(LT_TARGET).CFLAGS = -Wall -W -Os -g
+
+$(LT_TARGET).HEADERS = linenoise.h
+$(LT_TARGET).HEADER_PREFIX = linenoise
+
+include $(LT_MAKE_RULES)

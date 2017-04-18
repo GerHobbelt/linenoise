@@ -1,0 +1,5 @@
+# Project file for linenoise
+
+export LT_PROJECT=linenoise
+export LT_MAJOR=1
+export LT_MINOR=0
