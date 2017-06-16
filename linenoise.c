@@ -553,16 +553,16 @@ static void abFree(struct abuf *ab) {
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int pcollen) {
     char seq[64];
     size_t collen = pcollen+columnPos(l->buf,l->len,l->len);
-    if (hintsCallback && collen < l->cols) {
+    if (hintsCallback && collen + 1 < l->cols) {
         int color = -1, bold = 0;
         char *hint = hintsCallback(l->buf,&color,&bold);
         if (hint) {
             int hintlen = strlen(hint);
-            int hintmaxlen = l->cols-collen;
+            int hintmaxlen = l->cols-collen - 1;
             if (hintlen > hintmaxlen) hintlen = hintmaxlen;
             if (bold == 1 && color == -1) color = 37;
             if (color != -1 || bold != 0)
-                snprintf(seq,64,"\033[%d;%d;49m",bold,color);
+                snprintf(seq,64," \033[%d;%d;49m",bold,color);
             abAppend(ab,seq,strlen(seq));
             abAppend(ab,hint,hintlen);
             if (color != -1 || bold != 0)
