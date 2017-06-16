@@ -745,6 +745,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void refreshLine(struct linenoiseState *l) {
+    l->cols = getColumns(STDIN_FILENO, STDOUT_FILENO);
     if (mlmode)
         refreshMultiLine(l);
     else
