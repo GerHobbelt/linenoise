@@ -620,6 +620,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     size_t len = l->len;
     size_t pos = l->pos;
     struct abuf ab;
+    int col;
 
     while((pcollen+columnPos(buf,len,pos)) >= l->cols) {
         int chlen = nextCharLen(buf,len,0,NULL);
@@ -644,7 +645,11 @@ static void refreshSingleLine(struct linenoiseState *l) {
     snprintf(seq,64,"\x1b[0K");
     abAppend(&ab,seq,strlen(seq));
     /* Move cursor to original position. */
-    snprintf(seq,64,"\r\x1b[%dC", (int)(columnPos(buf,len,pos)+pcollen));
+    col = (int)(columnPos(buf,len,pos)+pcollen);
+    if (col)
+        snprintf(seq,64,"\r\x1b[%dC", col);
+    else
+        snprintf(seq,64,"\r");
     abAppend(&ab,seq,strlen(seq));
     if (write(fd,ab.b,ab.len) == -1) {} /* Can't recover from write error. */
     abFree(&ab);
