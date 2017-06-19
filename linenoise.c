@@ -3,7 +3,8 @@
  *
  * You can find the latest source code at:
  *
- *   http://github.com/antirez/linenoise
+ *   http://github.com/afmayer/linenoise
+ *   (forked from http://github.com/antirez/linenoise)
  *
  * Does a number of crazy assumptions that happen to be true in 99.9999% of
  * the 2010 UNIX computers around.
@@ -12,6 +13,7 @@
  *
  * Copyright (c) 2010-2016, Salvatore Sanfilippo <antirez at gmail dot com>
  * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2016-2017, Alexander F. Mayer <tinybluebutton at gmail dot com>
  *
  * All rights reserved.
  *
