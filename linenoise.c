@@ -126,6 +126,8 @@ static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
+static linenoisePostProcCallback *postProcCallback = NULL;
+static linenoiseFreePostProcBufCallback *freePostProcBufCallback = NULL;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
@@ -521,6 +523,20 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
     lc->cvec[lc->len++] = copy;
 }
 
+/* Register a postprocessing function to add highlighting before displaying
+ * the buffer */
+void linenoiseSetPostProcCallback(linenoisePostProcCallback *fn)
+{
+    postProcCallback = fn;
+}
+
+/* Register a function to free the postprocessed buffer returned by the
+ * postprocessing callback registered with linenoiseSetPostProcCallback() */
+void linenoiseSetFreePostProcBufCallback(linenoiseFreePostProcBufCallback *fn)
+{
+    freePostProcBufCallback = fn;
+}
+
 /* =========================== Line editing ================================= */
 
 /* We define a very simple "append buffer" structure, that is an heap
@@ -623,6 +639,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     size_t pos = l->pos;
     struct abuf ab;
     int col;
+    char *processed = NULL;
 
     while((pcollen+columnPos(buf,len,pos)) >= l->cols) {
         int chlen = nextCharLen(buf,len,0,NULL);
@@ -638,9 +655,20 @@ static void refreshSingleLine(struct linenoiseState *l) {
     /* Cursor to left edge */
     snprintf(seq,64,"\r");
     abAppend(&ab,seq,strlen(seq));
+    /* Post-process the buffer only if the full buffer is visible. The post-
+     * processing function must see (and highlight) the full buffer, but showing
+     * only parts of a buffer with embedded escape sequences is too complex. */
+    if (postProcCallback && len == l->len)
+        processed = postProcCallback(buf,pos);
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    abAppend(&ab,buf,len);
+    if (processed) {
+        abAppend(&ab,processed,strlen(processed));
+        if (freePostProcBufCallback)
+            freePostProcBufCallback(processed);
+    } else {
+        abAppend(&ab,buf,len);
+    }
     /* Show hits if any. */
     refreshShowHints(&ab,l,pcollen);
     /* Erase to right */
@@ -673,6 +701,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
     int old_rows = l->maxrows;
     int fd = l->ofd, j;
     struct abuf ab;
+    char *processed = NULL;
 
     /* Update maxrows if needed. */
     if (rows > (int)l->maxrows) l->maxrows = rows;
@@ -698,9 +727,19 @@ static void refreshMultiLine(struct linenoiseState *l) {
     snprintf(seq,64,"\r\x1b[0K");
     abAppend(&ab,seq,strlen(seq));
 
+    /* Post-process the buffer. */
+    if (postProcCallback)
+        processed = postProcCallback(l->buf,l->pos);
+
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    abAppend(&ab,l->buf,l->len);
+    if (processed) {
+        abAppend(&ab,processed,strlen(processed));
+        if (freePostProcBufCallback)
+            freePostProcBufCallback(processed);
+    } else {
+        abAppend(&ab,l->buf,l->len);
+    }
 
     /* Show hits if any. */
     refreshShowHints(&ab,l,pcollen);
@@ -769,7 +808,9 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *cbuf, int clen) {
             l->pos+=clen;
             l->len+=clen;;
             l->buf[l->len] = '\0';
-            if ((!mlmode && promptTextColumnLen(l->prompt,l->plen)+columnPos(l->buf,l->len,l->len) < l->cols && !hintsCallback)) {
+            if ((!mlmode && !hintsCallback && !postProcCallback &&
+                    promptTextColumnLen(l->prompt,l->plen)+
+                    columnPos(l->buf,l->len,l->len) < l->cols)) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
                 if (write(l->ofd,cbuf,clen) == -1) return -1;
