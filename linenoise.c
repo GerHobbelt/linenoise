@@ -426,6 +426,60 @@ static void freeCompletions(linenoiseCompletions *lc) {
         free(lc->cvec);
 }
 
+static void showAllCompletions(linenoiseCompletions *lc, size_t cols) {
+    size_t i, j;
+    size_t space = 2;
+    size_t maxlen = 0;
+    size_t byline, lines;
+    for (i = 0; i < lc->len; i++) {
+        int len = strlen(lc->cvec[i]);
+        if ((size_t)len > maxlen)
+            maxlen = len;
+    }
+    byline = cols / (maxlen + space);
+    if (byline == 0)
+        byline = 1;
+    lines = (lc->len + byline - 1) / byline;
+    for (i = 0; i < lines; i++) {
+        for (j = 0; j < byline; j++) {
+            if (lines * j + i >= lc->len)
+                break;
+            printf("%*s",-(int)(maxlen + space),lc->cvec[lines * j + i]);
+        }
+        printf("\n");
+    }
+}
+
+static int insertReplacement(int partial, struct linenoiseState *ls,
+                             linenoiseCompletions *lc, size_t len) {
+    /* If replacement text does not fit into the buffer or the range of replaced
+     * characters is not within the buffer, do nothing */
+    if (lc->replace_first + lc->replace_size > ls->len ||
+            ls->len - lc->replace_size + len > ls->buflen) {
+        return 0;
+    }
+    /* Move buffer contents after replacement to new position */
+    memmove(ls->buf + lc->replace_first + len,
+            ls->buf + lc->replace_first + lc->replace_size,
+            ls->len - (lc->replace_first + lc->replace_size));
+    /* Insert replacement text and set new length and position */
+    memcpy(ls->buf + lc->replace_first,lc->cvec[0],len);
+    ls->pos = lc->replace_first + len;
+    ls->len = ls->len - lc->replace_size + len;
+    /* If we inserted a full completion text (not only a part) and are at the
+     * end of the line and, insert a space character to introduce a new
+     * parameter (unless replace_newword was set to zero by the completion
+     * callback) */
+    if (!partial && ls->pos == ls->len && ls->pos < ls->buflen &&
+            lc->replace_newword) {
+        ls->buf[ls->len] = ' ';
+        ls->pos++;
+        ls->len++;
+    }
+    ls->buf[ls->len] = '\0';
+    return 1;
+}
+
 /* This is an helper function for linenoiseEdit() and is called when the
  * user types the <tab> key in order to complete the string currently in the
  * input.
@@ -433,52 +487,71 @@ static void freeCompletions(linenoiseCompletions *lc) {
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
 static int completeLine(struct linenoiseState *ls, char *cbuf, size_t cbuf_len, int *c) {
-    linenoiseCompletions lc = { 0, NULL };
-    int nread = 0, nwritten;
+    linenoiseCompletions lc = { 0 };
+    int nread = 0;
+    lc.replace_first = ls->pos;
+    lc.replace_size = 0;
+    lc.replace_newword = 1;
     *c = 0;
 
-    completionCallback(ls->buf,&lc);
+    /* Range of replaced characters can be set by the completion callback, but
+     * in case the callback doesn't care, provide a sane default. */
+    while (lc.replace_first > 0 && ls->buf[lc.replace_first-1] != ' ')
+        lc.replace_first--;
+    while (lc.replace_first + lc.replace_size < ls->len &&
+           ls->buf[lc.replace_first + lc.replace_size] != ' ')
+        lc.replace_size++;
+    completionCallback(ls->buf,ls->pos,&lc);
     if (lc.len == 0) {
         linenoiseBeep();
+    } else if (lc.len == 1) {
+        if (insertReplacement(0,ls,&lc,strlen(lc.cvec[0])))
+            refreshLine(ls);
     } else {
-        size_t stop = 0, i = 0;
+        int showall = 0;
+        size_t prefixlen = 0;
 
-        while(!stop) {
-            /* Show completion or original buffer */
-            if (i < lc.len) {
-                struct linenoiseState saved = *ls;
+        /* Determine length of common prefix across all completions */
+        while (1) {
+            size_t i;
+            for (i = 0; i < lc.len; i++) {
+                if (lc.cvec[i][prefixlen] == 0 ||
+                        lc.cvec[i][prefixlen] != lc.cvec[0][prefixlen])
+                    goto prefix_counted;
+            }
+            prefixlen++;
+        }
 
-                ls->len = ls->pos = strlen(lc.cvec[i]);
-                ls->buf = lc.cvec[i];
+prefix_counted:
+        if (prefixlen != 0) {
+            if (insertReplacement(1,ls,&lc,prefixlen))
                 refreshLine(ls);
-                ls->len = saved.len;
+        }
+
+        while(1) {
+            if (showall) {
+                /* Clear the line (except prompt) before showing all
+                 * completions */
+                struct linenoiseState saved = *ls;
+                ls->pos = 0;
+                ls->len = 0;
+                refreshLine(ls);
                 ls->pos = saved.pos;
-                ls->buf = saved.buf;
-            } else {
+                ls->len = saved.len;
+                disableRawMode(ls->ofd);
+                printf("\n");
+                showAllCompletions(&lc,ls->cols);
+                enableRawMode(ls->ofd);
                 refreshLine(ls);
             }
-
             nread = readCode(ls->ifd,cbuf,cbuf_len,c);
             if (nread <= 0) {
-                freeCompletions(&lc);
                 *c = -1;
-                return nread;
+                break;
             }
-
-            switch(*c) {
-                case 9: /* tab */
-                    i = (i+1) % (lc.len+1);
-                    if (i == lc.len) linenoiseBeep();
-                    break;
-                default:
-                    /* Update buffer and return */
-                    if (i < lc.len) {
-                        nwritten = snprintf(ls->buf,ls->buflen,"%s",lc.cvec[i]);
-                        ls->len = ls->pos = nwritten;
-                    }
-                    stop = 1;
-                    break;
-            }
+            if (*c != TAB)
+                break;
+            showall = 1;
         }
     }
 
