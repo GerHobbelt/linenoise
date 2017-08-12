@@ -1076,6 +1076,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         case 8:     /* ctrl-h */
             linenoiseEditBackspace(&l);
             break;
+        case TAB:
+            break;
         case CTRL_D:     /* ctrl-d, remove char at right of cursor, or if the
                             line is empty, act as end-of-file. */
             if (l.len > 0) {
