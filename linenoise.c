@@ -411,7 +411,8 @@ void linenoiseClearScreen(void) {
 /* Beep, used for completion when there is nothing to complete or when all
  * the choices were already shown. */
 static void linenoiseBeep(void) {
-    write(ERROR_FD, "\x7", strlen("\x7"));
+    int r = write(ERROR_FD, "\x7", strlen("\x7"));
+    UNUSED(r);
     fsync(ERROR_FD);
 }
 
@@ -472,7 +473,8 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     logprintf("rawSize: %zu\n", rawSize);
 
     // show candidates
-    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+    int r = write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+    UNUSED(r);
     for(index = 0; index < rawSize; index++) {
         size_t cadidateIndex = 0;
         size_t j = 0;
@@ -484,17 +486,20 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
 
             // print candidate
             const char *c = lc->cvec[cadidateIndex];
-            write(OUTPUT_FD, c, strlen(c));
+            r = write(OUTPUT_FD, c, strlen(c));
+            UNUSED(r);
 
             // print spaces
             unsigned int s;
             for(s = 0; s < maxSize - sizeTable[cadidateIndex]; s++) {
-                write(OUTPUT_FD, " ", 1);
+                r = write(OUTPUT_FD, " ", 1);
+                UNUSED(r);
             }
 
             j++;
         }
-        write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+        r = write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+        UNUSED(r);
     }
 
     free(sizeTable);
@@ -631,7 +636,8 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
         if(lc.len >= 100) {
             char msg[256];
             snprintf(msg, 256, "\r\nDisplay all %zu possibilities? (y or n) ", lc.len);
-            write(OUTPUT_FD, msg, strlen(msg));
+            int r = write(OUTPUT_FD, msg, strlen(msg));
+            UNUSED(r);
 
             while(1) {
                 nread = readCode(ls->ifd, cbuf, 32, &c);
@@ -642,7 +648,8 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
                 if(c == 'y') {
                     break;
                 } else if(c == 'n') {
-                    write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+                    r = write(OUTPUT_FD, "\r\n", strlen("\r\n"));
+                    UNUSED(r);
                     show = 0;
                     break;
                 } else if(c == CTRL_C) {
@@ -1290,7 +1297,8 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt) {
         if (enableRawMode(INPUT_FD) == -1) return -1;
         count = linenoiseEdit(INPUT_FD, OUTPUT_FD, buf, buflen, prompt);
         disableRawMode(INPUT_FD);
-        write(OUTPUT_FD, "\n", 1);
+        int r = write(OUTPUT_FD, "\n", 1);
+        UNUSED(r);
     }
     return count;
 }
@@ -1307,7 +1315,8 @@ char *linenoise(const char *prompt) {
     if (isUnsupportedTerm()) {
         size_t len;
 
-        write(OUTPUT_FD, prompt, strlen(prompt));
+        int r = write(OUTPUT_FD, prompt, strlen(prompt));
+        UNUSED(r);
         fsync(OUTPUT_FD);
         int rlen;
         if((rlen = read(INPUT_FD, buf, LINENOISE_MAX_LINE)) <= 0)
