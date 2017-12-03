@@ -1,3 +1,5 @@
+Under Windows, test with VS2008 & VS2015
+
 # Linenoise
 
 A minimal, zero-config, BSD licensed, readline replacement used in Redis,
