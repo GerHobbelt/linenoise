@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
         }
     }
 
-//    linenoiseSetMultiLine(1);
+    linenoiseSetMultiLine(1);
     /* Set the completion callback. This will be called every time the
     * user uses the <tab> key. */
     linenoiseSetCompletionCallback(completion);

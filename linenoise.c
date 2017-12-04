@@ -202,6 +202,7 @@ static void refreshLine(struct linenoiseState *l);
 static HANDLE hOut, hIn;
 static DWORD consolemode;
 static SHORT previousRelY = 0; /* record previous row number, used in multi line mode */
+static DWORD cursorSize = 1;
 
 static int win32read(char *c) {
     DWORD foo;
@@ -401,12 +402,13 @@ static int enableRawMode(int fd) {
     * We want read to return every single byte, without timeout. */
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
 
-                                             /* put terminal in raw mode after flushing */
+    /* put terminal in raw mode after flushing */
     if (tcsetattr(fd, TCSAFLUSH, &raw) < 0) goto fatal;
     rawmode = 1;
 #else
-
     if (!atexit_registered) {
+        CONSOLE_CURSOR_INFO cinf;
+
         /* Init windows console handles only once */
         hOut = GetStdHandle(STD_OUTPUT_HANDLE);
         if (hOut == INVALID_HANDLE_VALUE) goto fatal;
@@ -417,6 +419,9 @@ static int enableRawMode(int fd) {
             return -1;
         };
         SetConsoleMode(hOut, consolemode | 0x0004); /* ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004 */
+        /* get and save current cursor size */
+        GetConsoleCursorInfo(hOut, &cinf);
+        cursorSize = cinf.dwSize;
 
         hIn = GetStdHandle(STD_INPUT_HANDLE);
         if (hIn == INVALID_HANDLE_VALUE) {
@@ -426,9 +431,7 @@ static int enableRawMode(int fd) {
         }
 
         GetConsoleMode(hIn, &consolemode);
-        SetConsoleMode(hIn,
-            consolemode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT));
-        //SetConsoleMode(hIn, ENABLE_PROCESSED_INPUT);
+        SetConsoleMode(hIn, ENABLE_PROCESSED_INPUT);
 
         /* Cleanup them at exit */
         atexit(linenoiseAtExit);
@@ -487,10 +490,9 @@ static int getCursorPosition(int ifd, int ofd) {
 * if it fails. */
 static int getColumns(int ifd, int ofd) {
 #ifdef _WIN32
-    CONSOLE_SCREEN_BUFFER_INFO b;
-
-    if (!GetConsoleScreenBufferInfo(hOut, &b)) return 80;
-    return b.srWindow.Right - b.srWindow.Left;
+    CONSOLE_SCREEN_BUFFER_INFO binf;
+    if (!GetConsoleScreenBufferInfo(hOut, &binf)) return 80;
+    return binf.srWindow.Right - binf.srWindow.Left;
 #else
     struct winsize ws;
 
@@ -535,6 +537,7 @@ void linenoiseClearScreen(void) {
     GetConsoleScreenBufferInfo(hOut, &inf);
     SetConsoleCursorPosition(hOut, coord);
     FillConsoleOutputCharacter(hOut, ' ', inf.dwSize.X * inf.dwSize.Y, coord, &count);
+    previousRelY = 0;
 #else
     if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
         /* nothing to do, just to avoid warning. */
@@ -727,18 +730,19 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
 * cursor position, and number of columns of the terminal. */
 static void refreshSingleLine(struct linenoiseState *l) {
 #ifdef _WIN32
-    CONSOLE_SCREEN_BUFFER_INFO inf;
+    CONSOLE_SCREEN_BUFFER_INFO binf;
+    CONSOLE_CURSOR_INFO cinf;
     DWORD count;
 #else
     char seq[64];
 #endif
+
     size_t plen = strlen(l->prompt);
     int fd = l->ofd;
     char *buf = l->buf;
     size_t len = l->len;
     size_t pos = l->pos;
     struct abuf ab;
-
 
     while ((plen + pos) >= l->cols) {
         buf++;
@@ -751,21 +755,31 @@ static void refreshSingleLine(struct linenoiseState *l) {
 
     abInit(&ab);
 #ifdef _WIN32
-    /* position at the end of the prompt, clear to end of the line */
-    GetConsoleScreenBufferInfo(hOut, &inf);
-    inf.dwCursorPosition.X = (SHORT)plen;  // 0-based on Win32
-    SetConsoleCursorPosition(hOut, inf.dwCursorPosition);
-    FillConsoleOutputCharacter(hOut, ' ', l->cols + 1 - plen, inf.dwCursorPosition, &count);
+    /* hide cursor to avoid flick when move cursor position */
+	cinf.bVisible = FALSE;
+	cinf.dwSize = cursorSize;
+	SetConsoleCursorInfo(hOut, &cinf);
 
-    /* Write the current buffer content */
+    /* position at the end of the prompt, clear to end of the line */
+    GetConsoleScreenBufferInfo(hOut, &binf);
+    binf.dwCursorPosition.X = 0;  // 0-based on Win32
+    SetConsoleCursorPosition(hOut, binf.dwCursorPosition);
+    FillConsoleOutputCharacter(hOut, ' ', l->cols + 1, binf.dwCursorPosition, &count);
+
+    /* Write the prompt and the current buffer content */
+    abAppend(&ab, l->prompt, (int)plen);
     abAppend(&ab, buf, (int)len);
     /* Show hits if any. */
     refreshShowHints(&ab, l, plen);
     if (write(fd, ab.b, ab.len) == -1) {} /* Can't recover from write error. */
 
     /* Move cursor to original position. */
-    inf.dwCursorPosition.X = (SHORT)(pos + plen);
-    SetConsoleCursorPosition(hOut, inf.dwCursorPosition);
+    binf.dwCursorPosition.X = (SHORT)(pos + plen);
+    SetConsoleCursorPosition(hOut, binf.dwCursorPosition);
+
+    /* show cursor */
+    cinf.bVisible = TRUE;
+    SetConsoleCursorInfo(hOut, &cinf);
 #else
     /* Cursor to left edge */
     snprintf(seq, 64, "\r");
@@ -793,7 +807,8 @@ static void refreshSingleLine(struct linenoiseState *l) {
 static void refreshMultiLine(struct linenoiseState *l) {
 #ifdef _WIN32
     int xCursorPos, yCursorPos;
-    CONSOLE_SCREEN_BUFFER_INFO inf;
+    CONSOLE_SCREEN_BUFFER_INFO binf;
+    CONSOLE_CURSOR_INFO cinf;
     DWORD count;
 #else
     char seq[64];
@@ -801,6 +816,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
     int rpos2; /* rpos after refresh. */
     int col; /* colum position, zero-based. */
 #endif
+
     int plen = (int)strlen(l->prompt);
     int rows = (int)((plen + l->len + l->cols - 1) / l->cols); /* rows used by current buf. */
     int rpos = (int)((plen + l->oldpos + l->cols) / l->cols); /* cursor relative row. */
@@ -815,27 +831,38 @@ static void refreshMultiLine(struct linenoiseState *l) {
     * going to the last row. */
     abInit(&ab);
 #ifdef _WIN32
-    // calculate the desired position of the cursor, relative to current prompt
+    /* calculate the desired position of the cursor, relative to current prompt */
     calculateScreenPosition(l->plen, 0, l->cols + 1, l->pos, &xCursorPos, &yCursorPos);
 
-    /* position at the end of the prompt, clear to end of the line */
-    GetConsoleScreenBufferInfo(hOut, &inf);
-    inf.dwCursorPosition.X = (SHORT)plen;  // 0-based on Win32
-    inf.dwCursorPosition.Y -= previousRelY;
-    SetConsoleCursorPosition(hOut, inf.dwCursorPosition);
-    FillConsoleOutputCharacter(hOut, ' ', (l->cols + 1) * old_rows - plen, inf.dwCursorPosition, &count);
+    /* hide cursor to avoid flick when move cursor position */
+    cinf.bVisible = FALSE;
+    cinf.dwSize = cursorSize;
+    SetConsoleCursorInfo(hOut, &cinf);
 
-    /* Write the current buffer content */
+    /* position at the end of the prompt, clear to end of the line */
+    GetConsoleScreenBufferInfo(hOut, &binf);
+    binf.dwCursorPosition.X = 0;  // 0-based on Win32
+    binf.dwCursorPosition.Y -= previousRelY;
+    SetConsoleCursorPosition(hOut, binf.dwCursorPosition);
+    FillConsoleOutputCharacter(hOut, ' ', (l->cols + 1) * old_rows, binf.dwCursorPosition, &count);
+
+    /* Write the prompt and the current buffer content */
+    abAppend(&ab, l->prompt, (int)strlen(l->prompt));
     abAppend(&ab, l->buf, (int)l->len);
     /* Show hits if any. */
     refreshShowHints(&ab, l, plen);
     if (write(fd, ab.b, ab.len) == -1) {} /* Can't recover from write error. */
 
     /* Move cursor to original position. */
-    inf.dwCursorPosition.X = xCursorPos;
-    inf.dwCursorPosition.Y += yCursorPos;
-    SetConsoleCursorPosition(hOut, inf.dwCursorPosition);
+    binf.dwCursorPosition.X = xCursorPos;
+    binf.dwCursorPosition.Y += yCursorPos;
+    SetConsoleCursorPosition(hOut, binf.dwCursorPosition);
 
+    /* show cursor */
+    cinf.bVisible = TRUE;
+    SetConsoleCursorInfo(hOut, &cinf);
+
+    /* record last row position */
     previousRelY = yCursorPos;
 #else
     if (old_rows - rpos > 0) {
