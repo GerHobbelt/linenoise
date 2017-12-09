@@ -644,6 +644,7 @@ static void abFree(struct abuf *ab) {
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int pcollen) {
     char seq[64];
     size_t collen = pcollen+columnPos(l->buf,l->len,l->len);
+    seq[0] = '\0';
     if (hintsCallback && collen + 1 < l->cols) {
         int color = -1, bold = 0;
         char *hint = hintsCallback(l->buf,&color,&bold);
