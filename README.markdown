@@ -51,4 +51,4 @@ Please test it everywhere you can and report back!
 Patches should be provided in the respect of linenoise sensibility for small
 easy to understand code.
 
-Send feedbacks to oldium dot pro at seznam cz
+Send feedbacks to oldium dot pro at gmail com
