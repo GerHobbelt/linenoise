@@ -430,9 +430,9 @@ static int write32(int fd, char32_t* text32, int len32) {
 
 class Utf32String {
  public:
-  Utf32String() : _length(0), _data(nullptr) { 
+  Utf32String() : _length(0), _data(nullptr) {
     // note: parens intentional, _data must be properly initialized
-    _data = new char32_t[1](); 
+    _data = new char32_t[1]();
   }
 
   explicit Utf32String(const char* src) : _length(0), _data(nullptr) {
@@ -464,9 +464,9 @@ class Utf32String {
     memcpy(_data, src, len * sizeof(char32_t));
   }
 
-  explicit Utf32String(int len) : _length(0), _data(nullptr) { 
+  explicit Utf32String(int len) : _length(0), _data(nullptr) {
     // note: parens intentional, _data must be properly initialized
-    _data = new char32_t[len](); 
+    _data = new char32_t[len]();
   }
 
   explicit Utf32String(const Utf32String& that) : _length(that._length), _data(nullptr) {
@@ -2542,7 +2542,7 @@ int InputBuffer::getInputLine(PromptBase& pi) {
     if (terminatingKeystroke == -1) {
       c = linenoiseReadChar();  // get a new keystroke
 
-      keyType = 0; 
+      keyType = 0;
       if (c != 0) {
         // set flag that we got some input
         if (c == ctrlChar('C')) {
@@ -3171,11 +3171,12 @@ void linenoisePreloadBuffer(const char* preloadText) {
  * user
  *
  * @param prompt text of prompt to display to the user
+ * @param entry_length line entry length in characters (termnial only)
  * @return       the returned string belongs to the caller on return and must be
  * freed to prevent
  *               memory leaks
  */
-char* linenoise(const char* prompt) {
+char* linenoise(const char* prompt, int* entry_length) {
 #ifndef _WIN32
   gotResize = false;
 #endif
@@ -3217,6 +3218,9 @@ char* linenoise(const char* prompt) {
         preloadedBufferContents.clear();
       }
       int count = ib.getInputLine(pi);
+      if (entry_length != NULL) {
+          *entry_length = ib.length();
+      }
       disableRawMode();
       printf("\n");
       if (count == -1) {
