@@ -1514,6 +1514,9 @@ static char32_t escFailureRoutine(char32_t) {
   beep();
   return -1;
 }
+static char32_t newmultiline(char32_t) {
+  return META + '\n';
+}
 
 // Handle ESC [ 1 ; 3 (or 5) <more stuff> escape sequences
 //
@@ -1662,7 +1665,7 @@ static CharacterDispatchRoutine escORoutines[] = {
     upArrowKeyRoutine,       downArrowKeyRoutine,     rightArrowKeyRoutine,
     leftArrowKeyRoutine,     homeKeyRoutine,          endKeyRoutine,
     ctrlUpArrowKeyRoutine,   ctrlDownArrowKeyRoutine, ctrlRightArrowKeyRoutine,
-    ctrlLeftArrowKeyRoutine, escFailureRoutine};
+    ctrlLeftArrowKeyRoutine, escFailureRoutine };
 static CharacterDispatch escODispatch = {10, "ABCDHFabcd", escORoutines};
 
 // Initial ESC dispatch -- could be a Meta prefix or the start of an escape
@@ -1680,8 +1683,8 @@ static char32_t escORoutine(char32_t c) {
 }
 static char32_t setMetaRoutine(char32_t c);  // need forward reference
 static CharacterDispatchRoutine escRoutines[] = {escLeftBracketRoutine,
-                                                 escORoutine, setMetaRoutine};
-static CharacterDispatch escDispatch = {2, "[O", escRoutines};
+                                                 escORoutine, setMetaRoutine, newmultiline};
+static CharacterDispatch escDispatch = {3, "[O\n", escRoutines};
 
 // Initial dispatch -- we are not in the middle of anything yet
 //
@@ -2549,6 +2552,9 @@ int InputBuffer::getInputLine(PromptBase& pi) {
           keyType = 1;
         } else if (c == ctrlChar('D')) {
           keyType = 2;
+        } else if (c == META + '\n') {
+          keyType = 3;
+          c = '\n';
         }
       }
 
@@ -3047,6 +3053,9 @@ int InputBuffer::getInputLine(PromptBase& pi) {
           len = pos = static_cast<int>(ucharCount);
           refreshLine(pi);
         }
+        break;
+
+      case META + '\n':
         break;
 
       // not one of our special characters, maybe insert it in the buffer
