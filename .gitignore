@@ -1,3 +1,7 @@
 linenoise_example
 *.dSYM
 history.txt
+
+/buck-out
+/.buckd
+.buckconfig.local
