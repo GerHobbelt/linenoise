@@ -56,6 +56,10 @@ extern "C" {
 
 #include <stddef.h>
 
+typedef struct {
+	int a;
+} libline_t;
+
 typedef struct line_completions line_completions;
 typedef void (line_completion_callback) (const char *, size_t pos, line_completions *);
 

@@ -121,8 +121,12 @@
  * <https://msdn.microsoft.com/en-us/library/windows/desktop/ms686033%28v=vs.85%29.aspx>
  * <https://msdn.microsoft.com/en-us/library/windows/desktop/ms683231%28v=vs.85%29.aspx>
  *
-
- */
+ * TODO:
+ * - Full Windows Port
+ * - Assertions
+ * - Create a libline object
+ * - Put system dependent functionality into a series of callbacks, including
+ *   the allocator, making this suitable to porting to an embedded environment */
 
 #include "libline.h"
 #include <ctype.h>
@@ -188,25 +192,25 @@ struct line_state {
 };
 
 enum KEY_ACTION {
-        KEY_NULL = 0,           /* NULL */
-        CTRL_A = 1,             /* Ctrl+a */
-        CTRL_B = 2,             /* Ctrl-b */
-        CTRL_C = 3,             /* Ctrl-c */
-        CTRL_D = 4,             /* Ctrl-d */
-        CTRL_E = 5,             /* Ctrl-e */
-        CTRL_F = 6,             /* Ctrl-f */
-        CTRL_H = 8,             /* Ctrl-h */
-        TAB = 9,                /* Tab */
-        CTRL_K = 11,            /* Ctrl+k */
-        CTRL_L = 12,            /* Ctrl+l */
-        ENTER = 13,             /* Enter */
-        CTRL_N = 14,            /* Ctrl-n */
-        CTRL_P = 16,            /* Ctrl-p */
-        CTRL_T = 20,            /* Ctrl-t */
-        CTRL_U = 21,            /* Ctrl+u */
-        CTRL_W = 23,            /* Ctrl+w */
-        ESC = 27,               /* Escape */
-        BACKSPACE = 127         /* Backspace */
+        KEY_NULL  = 0,   /* NULL */
+        CTRL_A    = 1,   /* Ctrl+a */
+        CTRL_B    = 2,   /* Ctrl-b */
+        CTRL_C    = 3,   /* Ctrl-c */
+        CTRL_D    = 4,   /* Ctrl-d */
+        CTRL_E    = 5,   /* Ctrl-e */
+        CTRL_F    = 6,   /* Ctrl-f */
+        CTRL_H    = 8,   /* Ctrl-h */
+        TAB       = 9,   /* Tab */
+        CTRL_K    = 11,  /* Ctrl+k */
+        CTRL_L    = 12,  /* Ctrl+l */
+        ENTER     = 13,  /* Enter */
+        CTRL_N    = 14,  /* Ctrl-n */
+        CTRL_P    = 16,  /* Ctrl-p */
+        CTRL_T    = 20,  /* Ctrl-t */
+        CTRL_U    = 21,  /* Ctrl+u */
+        CTRL_W    = 23,  /* Ctrl+w */
+        ESC       = 27,  /* Escape */
+        BACKSPACE = 127, /* Backspace */
 };
 
 /* We define a very simple "append buffer" structure, that is an heap
@@ -218,32 +222,15 @@ struct abuf {
         char *b;
 };
 
-static int complete_line(struct line_state *ls);
-static int enable_raw_mode(int fd);
-static int get_columns(int ifd, int ofd);
-static int get_cursor_position(int ifd, int ofd);
-static int is_unsupported_term(void);
-static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt);
+/**TODO Reorder code to avoid forward declarations */
 static int line_edit_delete_char(struct line_state *l);
-static int line_edit_process_vi(struct line_state *l, char c, char *buf);
-static int line_raw(char *buf, size_t buflen, const char *prompt);
-
-static void ab_append(struct abuf *ab, const char *s, size_t len);
-static void ab_free(struct abuf *ab);
-static void ab_init(struct abuf *ab);
-static void disable_raw_mode(int fd);
-static void free_completions(line_completions * lc);
-static void free_history(void);
 static void line_at_exit(void);
-static void line_beep(void);
-static void line_edit_next_word(struct line_state *l);
-static void line_edit_prev_word(struct line_state *l);
 static void refresh_line(struct line_state *l);
 
 static char *le_strdup(const char *s) { 
-        char *str;
         assert(s);
-        if(!(str = malloc(strlen(s) + 1))) {
+        char *str = malloc(strlen(s) + 1);
+        if (!str) {
                 fputs("Out of memory", stderr);
                 exit(1); /*not the best thing to do in a library*/
         }
@@ -252,29 +239,33 @@ static char *le_strdup(const char *s) {
 }
 
 /************************* Low level terminal handling ***********************/
+static int le_strcasecmp(const char *a, const char *b) {
+	assert(a);
+	assert(b);
+	int ca = 0, cb = 0;
+	for (ca = 0, cb = 0; (ca = *a++) && (cb = *b++);) {
+		ca = tolower(ca);
+		cb = tolower(cb);
+		if (ca != cb)
+			break;
+	}
+	return ca - cb;
+}
 
-/**
- * @brief Return true if the terminal name is in the list of terminals 
- *        we know are not able to understand basic escape sequences.
- **/
-static int is_unsupported_term(void)
-{
+/** @brief Return true if the terminal name is in the list of terminals 
+ *  we know are not able to understand basic escape sequences. **/
+static int is_unsupported_term(void) {
         char *term = getenv("TERM");
-        int j;
-
-        if (term == NULL)
+        if (!term)
                 return 0;
-        for (j = 0; unsupported_term[j]; j++)
-                if (!strcasecmp(term, unsupported_term[j]))
+        for (int j = 0; unsupported_term[j]; j++)
+                if (!le_strcasecmp(term, unsupported_term[j]))
                         return 1;
         return 0;
 }
 
-/**
- * @brief Enable raw mode, which is a little arcane.
- **/
-static int enable_raw_mode(int fd)
-{
+/** @brief Enable raw mode, which is a little arcane. **/
+static int enable_raw_mode(int fd) {
 #ifdef __unix__
         struct termios raw;
 
@@ -323,11 +314,8 @@ static int enable_raw_mode(int fd)
 #endif
 }
 
-/** 
- * @brief like enable_raw_mode but the exact opposite 
- **/
-static void disable_raw_mode(int fd)
-{
+/** @brief like enable_raw_mode but the exact opposite **/
+static void disable_raw_mode(int fd) {
 #ifdef __unix__
         /* Don't even check the return value as it's too late. */
         if (rawmode && tcsetattr(fd, TCSAFLUSH, &orig_termios) != -1)
@@ -337,22 +325,17 @@ static void disable_raw_mode(int fd)
 #endif
 }
 
-/**
- * @brief Use the ESC [6n escape sequence to query the horizontal 
+/** @brief Use the ESC [6n escape sequence to query the horizontal 
  *        cursor position and return it. On error -1 is returned, 
- *        on success the position of the cursor. 
- **/
-static int get_cursor_position(int ifd, int ofd)
-{
-        char buf[32];
-        int cols, rows;
-        size_t i = 0;
-
+ *        on success the position of the cursor. **/
+static int get_cursor_position(int ifd, int ofd) {
         /* Report cursor location */
         if (write(ofd, "\x1b[6n", 4) != 4)
                 return -1;
 
         /* Read the response: ESC [ rows ; cols R */
+        size_t i = 0;
+        char buf[32] = { 0 };
         while (i < sizeof(buf) - 1) {
                 if (read(ifd, buf + i, 1) != 1)
                         break;
@@ -365,17 +348,15 @@ static int get_cursor_position(int ifd, int ofd)
         /* Parse it. */
         if (buf[0] != ESC || buf[1] != '[')
                 return -1;
+        int cols = 0, rows = 0;
         if (sscanf(buf + 2, "%d;%d", &rows, &cols) != 2)
                 return -1;
         return cols;
 }
 
-/** 
- * @brief Try to get the number of columns in the current terminal, or 
- *        assume 80 if it fails. 
- **/
-static int get_columns(int ifd, int ofd)
-{
+/** @brief Try to get the number of columns in the current terminal, or 
+ *        assume 80 if it fails. **/
+static int get_columns(int ifd, int ofd) {
 #ifdef __unix__
         struct winsize ws;
 
@@ -420,8 +401,7 @@ static int get_columns(int ifd, int ofd)
 /** 
  * @brief Clear the screen. Used to handle ctrl+l 
  **/
-void line_clearscreen(void)
-{
+void line_clearscreen(void) {
 #ifdef __unix__
         if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
                 /* nothing to do, just to avoid warning. */
@@ -435,8 +415,7 @@ void line_clearscreen(void)
  * @brief Beep, used for completion when there is nothing to complete 
  * or when all the choices were already shown. 
  **/
-static void line_beep(void)
-{
+static void line_beep(void) {
 #ifdef __unix__
         fputs("\x7",stderr);
         fflush(stderr);
@@ -447,111 +426,94 @@ static void line_beep(void)
 
 /******************************** Completion *********************************/
 
-/** 
- * @brief Free a list of completion options populated by 
- *        line_add_completion(). 
- **/
-static void free_completions(line_completions * lc)
-{
-        size_t i;
-        for (i = 0; i < lc->len; i++)
+/**@brief Free a list of completion options populated by 
+ *        line_add_completion(). **/
+static void free_completions(line_completions * lc) {
+	assert(lc);
+        for (size_t i = 0; i < lc->len; i++)
                 free(lc->cvec[i]);
         if (lc->cvec != NULL)
                 free(lc->cvec);
 }
 
-/** 
- * @brief This is an helper function for line_edit() and is called when the
+/**@brief This is an helper function for line_edit() and is called when the
  *        user types the <tab> key in order to complete the string currently 
  *        in the input. The state of the editing is encapsulated into the pointed 
- *        line_state structure as described in the structure definition. 
- **/
-static int complete_line(struct line_state *ls)
-{
+ *        line_state structure as described in the structure definition. **/
+static int complete_line(struct line_state *ls) {
+	assert(ls);
         line_completions lc = { 0, NULL };
-        ssize_t nread;
-        int nwritten;
+        size_t stop = 0, i = 0;
         char c = 0;
 
         completion_callback(ls->buf, ls->pos, &lc);
         if (lc.len == 0) {
                 line_beep();
-        } else {
-                size_t stop = 0, i = 0;
+		goto end;
+	}
+	while (!stop) {
+		/* Show completion or original buffer */
+		if (i < lc.len) {
+			struct line_state saved = *ls;
+			ls->len = ls->pos = strlen(lc.cvec[i]);
+			ls->buf = lc.cvec[i];
+			refresh_line(ls);
+			ls->len = saved.len;
+			ls->pos = saved.pos;
+			ls->buf = saved.buf;
+		} else {
+			refresh_line(ls);
+		}
 
-                while (!stop) {
-                        /* Show completion or original buffer */
-                        if (i < lc.len) {
-                                struct line_state saved = *ls;
+		const ssize_t nread = read(ls->ifd, &c, 1);
+		if (nread <= 0) {
+			free_completions(&lc);
+			return -1;
+		}
 
-                                ls->len = ls->pos = strlen(lc.cvec[i]);
-                                ls->buf = lc.cvec[i];
-                                refresh_line(ls);
-                                ls->len = saved.len;
-                                ls->pos = saved.pos;
-                                ls->buf = saved.buf;
-                        } else {
-                                refresh_line(ls);
-                        }
-
-                        nread = read(ls->ifd, &c, 1);
-                        if (nread <= 0) {
-                                free_completions(&lc);
-                                return -1;
-                        }
-
-                        switch (c) {
-                        case TAB:        /* tab */
-                                i = (i + 1) % (lc.len + 1);
-                                if (i == lc.len)
-                                        line_beep();
-                                break;
-                        case ESC:       /* escape */
-                                /* Re-show original buffer */
-                                if (i < lc.len)
-                                        refresh_line(ls);
-                                stop = 1;
-                                break;
-                        default:
-                                /* Update buffer and return */
-                                if (i < lc.len) {
-                                        nwritten = snprintf(ls->buf, ls->buflen, "%s", lc.cvec[i]);
-                                        ls->len = ls->pos = (size_t)nwritten;
-                                }
-                                stop = 1;
-                                break;
-                        }
-                }
-        }
-
+		switch (c) {
+		case TAB:        /* tab */
+			i = (i + 1) % (lc.len + 1);
+			if (i == lc.len)
+				line_beep();
+			break;
+		case ESC:       /* escape */
+			/* Re-show original buffer */
+			if (i < lc.len)
+				refresh_line(ls);
+			stop = 1;
+			break;
+		default:
+			/* Update buffer and return */
+			if (i < lc.len) {
+				const int nwritten = snprintf(ls->buf, ls->buflen, "%s", lc.cvec[i]);
+				ls->len = ls->pos = (size_t)nwritten;
+			}
+			stop = 1;
+			break;
+		}
+	}
+end:
         free_completions(&lc);
         return c; /* Return last read character */
 }
 
-/** 
- * @brief Register a callback function to be called for tab-completion. 
- **/
-void line_set_completion_callback(line_completion_callback * fn)
-{
+/** @brief Register a callback function to be called for tab-completion. **/
+void line_set_completion_callback(line_completion_callback * fn) {
         completion_callback = fn;
 }
 
-/**
- * @brief This function is used by the callback function registered by the user
+/** @brief This function is used by the callback function registered by the user
  *        in order to add completion options given the input string when the
  *        user typed <tab>. See the example.c source code for a very easy to
- *        understand example.
- **/
-void line_add_completion(line_completions * lc, const char *str)
-{
-        size_t len = strlen(str);
-        char *copy, **cvec;
-
-        copy = malloc(len + 1);
+ *        understand example. **/
+void line_add_completion(line_completions * lc, const char *str) {
+        const size_t len = strlen(str);
+        char *copy = malloc(len + 1);
         if (copy == NULL)
                 return;
         memcpy(copy, str, len + 1);
-        cvec = realloc(lc->cvec, sizeof(char *) * (lc->len + 1));
+        char **cvec = realloc(lc->cvec, sizeof(char *) * (lc->len + 1));
         if (cvec == NULL) {
                 free(copy);
                 return;
@@ -562,46 +524,38 @@ void line_add_completion(line_completions * lc, const char *str)
 
 /***************************** Line editing **********************************/
 
-/**
- * @brief Initialize a abuf structure to zero
- **/
-static void ab_init(struct abuf *ab)
-{
-        ab->b = NULL;
+/** @brief Initialize a abuf structure to zero **/
+static void ab_init(struct abuf *ab) {
+	assert(ab);
+        ab->b  = NULL;
         ab->len = 0;
 }
 
-/**
- * @brief Append a string to an abuf struct
- **/
-static void ab_append(struct abuf *ab, const char *s, size_t len)
-{
+/**@brief Append a string to an abuf struct **/
+static void ab_append(struct abuf *ab, const char *s, size_t len) {
+	assert(ab);
+	assert(s);
         char *new = realloc(ab->b, ab->len + len);
-
-        if (new == NULL)
+        if (!new)
                 return;
         memcpy(new + ab->len, s, len);
         ab->b = new;
         ab->len += len;
 }
 
-/**
- * @brief Handle abuf memory freeing
- **/
-static void ab_free(struct abuf *ab)
-{
+/**@brief Handle abuf memory freeing **/
+static void ab_free(struct abuf *ab) {
+	assert(ab);
         free(ab->b);
         ab->b = NULL;
 }
 
-/**
- * @brief Single line low level line refresh.
+/**@brief Single line low level line refresh.
  *
  * Rewrite the currently edited line accordingly to the buffer content,
- * cursor position, and number of columns of the terminal. 
- **/
-static void refresh_line(struct line_state *l)
-{
+ * cursor position, and number of columns of the terminal. **/
+static void refresh_line(struct line_state *l) {
+	assert(l);
         char seq[SEQ_BUF_LEN];
         size_t plen = strlen(l->prompt);
         int fd = l->ofd;
@@ -610,14 +564,14 @@ static void refresh_line(struct line_state *l)
         size_t pos = l->pos;
         struct abuf ab;
 
-        if((plen + pos) >= l->cols){
-                size_t take = (plen + pos) - l->cols;
+        if ((plen + pos) >= l->cols) {
+                const size_t take = (plen + pos) - l->cols;
                 len -= take;
                 pos -= take;
                 buf += take;
         }
 
-        if(plen + len > l->cols)
+        if (plen + len > l->cols)
                 len = l->cols - plen;
 
         ab_init(&ab);
@@ -634,17 +588,15 @@ static void refresh_line(struct line_state *l)
         snprintf(seq, SEQ_BUF_LEN, "\x1b[0G\x1b[%dC", (int)(pos + plen));
         ab_append(&ab, seq, strlen(seq));
         if (write(fd, ab.b, ab.len) == -1) {
-        }                       /* Can't recover from write error. */
+        } /* Can't recover from write error. */
         ab_free(&ab);
 }
 
-/**
- * @brief Insert the character 'c' at cursor current position.
+/**@brief Insert the character 'c' at cursor current position.
  *
- * On error writing to the terminal -1 is returned, otherwise 0. 
- **/
-int line_edit_insert(struct line_state *l, char c)
-{
+ * On error writing to the terminal -1 is returned, otherwise 0.  **/
+int line_edit_insert(struct line_state *l, char c) {
+	assert(l);
         if (l->len < l->buflen) {
                 if (l->len == l->pos) {
                         l->buf[l->pos] = c;
@@ -652,8 +604,7 @@ int line_edit_insert(struct line_state *l, char c)
                         l->len++;
                         l->buf[l->len] = '\0';
                         if ((l->plen + l->len) < l->cols) {
-                                /* Avoid a full update of the line in the
-                                 * trivial case. */
+                                /* Avoid a full update of the line in the trivial case. */
                                 if (write(l->ofd, &c, 1) == -1)
                                         return -1;
                         } else {
@@ -671,56 +622,46 @@ int line_edit_insert(struct line_state *l, char c)
         return 0;
 }
 
-/** 
- * @brief Move cursor on the left.
- **/
-void line_edit_move_left(struct line_state *l)
-{
+/** @brief Move cursor on the left. **/
+void line_edit_move_left(struct line_state *l) {
+	assert(l);
         if (l->pos > 0) {
                 l->pos--;
                 refresh_line(l);
         }
 }
 
-/** 
- * @brief Move cursor on the right. 
- **/
-void line_edit_move_right(struct line_state *l)
-{
+/** @brief Move cursor on the right. **/
+void line_edit_move_right(struct line_state *l) {
+	assert(l);
         if (l->pos != l->len) {
                 l->pos++;
                 refresh_line(l);
         }
 }
 
-/**
- * @brief Move cursor to the start of the line. 
- **/
-void line_edit_move_home(struct line_state *l)
-{
+/** @brief Move cursor to the start of the line. **/
+void line_edit_move_home(struct line_state *l) {
+	assert(l);
         if (l->pos != 0) {
                 l->pos = 0;
                 refresh_line(l);
         }
 }
 
-/** 
- * @brief Move cursor to the end of the line. 
- **/
-void line_edit_move_end(struct line_state *l)
-{
+/** @brief Move cursor to the end of the line. **/
+void line_edit_move_end(struct line_state *l) {
+	assert(l);
         if (l->pos != l->len) {
                 l->pos = l->len;
                 refresh_line(l);
         }
 }
 
-/**
- * @brief Substitute the currently edited line with the next or 
- *        previous history entry as specified by 'dir'. 
- **/
-void line_edit_history_next(struct line_state *l, int dir)
-{
+/** * @brief Substitute the currently edited line with the next or 
+ * previous history entry as specified by 'dir'. **/
+void line_edit_history_next(struct line_state *l, int dir) {
+	assert(l);
         if (history_len > 1) {
                 /* Update the current history entry before to
                  * overwrite it with the next one. */
@@ -742,13 +683,11 @@ void line_edit_history_next(struct line_state *l, int dir)
         }
 }
 
-/** 
- * @brief Delete the character at the right of the cursor without altering the 
+/** @brief Delete the character at the right of the cursor without altering the 
  *        cursor position. Basically this is what happens with the "Delete" 
- *        keyboard key. 
- **/
-void line_edit_delete(struct line_state *l)
-{
+ *        keyboard key. **/
+void line_edit_delete(struct line_state *l) {
+	assert(l);
         if (l->len > 0 && l->pos < l->len) {
                 memmove(l->buf + l->pos, l->buf + l->pos + 1, l->len - l->pos - 1);
                 l->len--;
@@ -757,11 +696,9 @@ void line_edit_delete(struct line_state *l)
         }
 }
 
-/** 
- * @brief Backspace implementation. 
- **/
-void line_edit_backspace(struct line_state *l)
-{
+/** @brief Backspace implementation. **/
+void line_edit_backspace(struct line_state *l) {
+	assert(l);
         if (l->pos > 0 && l->len > 0) {
                 memmove(l->buf + l->pos - 1, l->buf + l->pos, l->len - l->pos);
                 l->pos--;
@@ -771,74 +708,62 @@ void line_edit_backspace(struct line_state *l)
         }
 }
 
-/**
- * @brief Move the cursor to the next word
- **/
-static void line_edit_next_word(struct line_state *l){
+/**@brief Move the cursor to the next word **/
+static void line_edit_next_word(struct line_state *l) {
+	assert(l);
         while ((l->pos < l->len) && (' ' == l->buf[l->pos + 1]))
                 l->pos++;
         while ((l->pos < l->len) && (' ' != l->buf[l->pos + 1]))
                 l->pos++;
-        if(l->pos < l->len)
+        if (l->pos < l->len)
                 l->pos++;
 }
 
-/**
- * @brief Delete the next word, maintaining the cursor at the start 
- *        of the current word. 
- **/
-void line_edit_delete_next_word(struct line_state *l)
-{
+/**@brief Delete the next word, maintaining the cursor at the start 
+ *        of the current word.  **/
+void line_edit_delete_next_word(struct line_state *l) {
+	assert(l);
         size_t old_pos = l->pos;
-        size_t diff;
-        
         line_edit_next_word(l);
-
-        diff = l->pos - old_pos;
+        const size_t diff = l->pos - old_pos;
         memmove(l->buf + old_pos, l->buf + l->pos, l->len - old_pos + 1);
         l->len -= diff;
         l->pos = old_pos;
         refresh_line(l);
 }
 
-/**
- * @brief Move the cursor to the previous word.
- **/
-static void line_edit_prev_word(struct line_state *l){
+/**@brief Move the cursor to the previous word. **/
+static void line_edit_prev_word(struct line_state *l) {
+	assert(l);
         while ((l->pos > 0) && (l->buf[l->pos - 1] == ' '))
                 l->pos--;
         while ((l->pos > 0) && (l->buf[l->pos - 1] != ' '))
                 l->pos--;
 }
 
-/**
- * @brief Delete the previous word, maintaining the cursor at the start 
- *        of the current word. 
- **/
-void line_edit_delete_prev_word(struct line_state *l)
-{
+/**@brief Delete the previous word, maintaining the cursor at the start 
+ *        of the current word. **/
+void line_edit_delete_prev_word(struct line_state *l) {
+	assert(l);
         size_t old_pos = l->pos;
-        size_t diff;
-
         line_edit_prev_word(l);
-
-        diff = old_pos - l->pos;
+        const size_t diff = old_pos - l->pos;
         memmove(l->buf + l->pos, l->buf + old_pos, l->len - old_pos + 1);
         l->len -= diff;
         refresh_line(l);
 }
 
-/**
- * @brief This function processes vi-key commands. 
+/**@brief This function processes vi-key commands. 
  * @param  l    The state of the line editor
  * @param  c    Current keyboard character we are processing
  * @param  buf  Input buffer
- * @return int  -1 on error
- **/
-static int line_edit_process_vi(struct line_state *l, char c, char *buf){
-        switch(c){
+ * @return int  -1 on error **/
+static int line_edit_process_vi(struct line_state *l, char c, char *buf) {
+	assert(l);
+	assert(buf);
+        switch (c) {
         case 'x': /*delete char*/
-                if(l->pos && (l->pos == l->len))
+                if (l->pos && (l->pos == l->len))
                         l->pos--;
                 (void)line_edit_delete_char(l);
                 break;
@@ -875,7 +800,7 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
                 refresh_line(l);
                 /*fall through*/
         case 'a':/*append after the cursor*/
-                if(l->pos != l->len){
+                if (l->pos != l->len) {
                         l->pos++;
                         refresh_line(l);
                 }
@@ -891,8 +816,7 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
         case 'k': /*move up*/
                 line_edit_history_next(l, LINENOISE_HISTORY_PREV);
                 break;
-        case 'r':
-        {       /*replace a character*/
+        case 'r': { /*replace a character*/
                 int replace = 0;
                 if (read(l->ifd, &replace, 1) == -1)
                         break;
@@ -908,10 +832,10 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
         case 't': /*fall through*/
         case 'T': /*fall through*/
         {
-                ssize_t dir, lim, cpos;
+                ssize_t dir = 0, lim = 0, cpos = 0;
                 int find = 0; 
 
-                if (read(l->ifd,&find,1) == -1) 
+                if (read(l->ifd, &find, 1) == -1) 
                         break;
 
                 if (islower(c)) {
@@ -940,10 +864,10 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
                 vi_escape = 0;
         case 'd': /*delete*/
         {
-                char rc[1];
+                char rc[1] = { 0 };
                 if (read(l->ifd, rc, 1) == -1)
                         break;
-                switch(rc[0]){
+                switch (rc[0]) {
                 case 'w': 
                         line_edit_delete_next_word(l);
                         break;
@@ -978,25 +902,25 @@ static int line_edit_process_vi(struct line_state *l, char c, char *buf){
         return 0;
 }
 
-/**
- * @brief Remove a character from the current line
+/**@brief Remove a character from the current line
  * @param       l       linenoise state
- * @return      int     negative on error
- **/
-static int line_edit_delete_char(struct line_state *l){
+ * @return      int     negative on error **/
+static int line_edit_delete_char(struct line_state *l) {
+	assert(l);
         if (l->len > 0) {
                 line_edit_delete(l);
         } else {
-                history_len--;
-                free(history[history_len]);
-                history[history_len] = NULL;
+		if (history_len > 0) {
+			history_len--;
+			free(history[history_len]);
+			history[history_len] = NULL;
+		}
                 return -1;
         }
 
         return 0;
 }
-/**
- * @brief The core line editing function, most of the work is done here.
+/**@brief The core line editing function, most of the work is done here.
  *
  * This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
@@ -1006,22 +930,24 @@ static int line_edit_delete_char(struct line_state *l){
  * when ctrl+d is typed.
  *
  * The function returns the length of the current buffer. */
-static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
-{
-        struct line_state l;
+static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt) {
+	assert(buf);
+	assert(prompt);
+        struct line_state l = { 0 };
 
         /* Populate the linenoise state that we pass to functions implementing
          * specific editing functionalities. */
-        l.ifd = stdin_fd;
-        l.ofd = stdout_fd;
-        l.buf = buf;
-        l.buflen = buflen;
-        l.prompt = prompt;
-        l.plen = strlen(prompt);
-        l.oldpos = l.pos = 0;
-        l.len = 0;
-        l.cols = get_columns(stdin_fd, stdout_fd);
-        l.maxrows = 0;
+        l.ifd           = stdin_fd;
+        l.ofd           = stdout_fd;
+        l.buf           = buf;
+        l.buflen        = buflen;
+        l.prompt        = prompt;
+        l.plen          = strlen(prompt);
+        l.oldpos        = 0;
+	l.pos           = 0;
+        l.len           = 0;
+        l.cols          = get_columns(stdin_fd, stdout_fd);
+        l.maxrows       = 0;
         l.history_index = 0;
 
         /* Buffer starts empty. */
@@ -1035,11 +961,8 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
         if (write(l.ofd, prompt, l.plen) == -1)
                 return -1;
         while (1) {
-                char c;
-                int nread;
-                char seq[3];
-
-                nread = read(l.ifd, &c, 1);
+                char c = 0;
+                const int nread = read(l.ifd, &c, 1);
                 if (nread <= 0)
                         return l.len;
 
@@ -1057,10 +980,12 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                 }
 
                 switch (c) {
-                case ENTER:  
-                        history_len--;
-                        free(history[history_len]);
-                        history[history_len] = NULL;
+                case ENTER:
+			if (history_len > 0) {
+				history_len--;
+				free(history[history_len]);
+				history[history_len] = NULL;
+			}
                         return l.len;
                 case CTRL_C:  
                         errno = EAGAIN;
@@ -1071,7 +996,7 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                         break;
                 case CTRL_D: /* remove char at right of cursor, or of the
                                 line is empty, act as end-of-file. */
-                        if(line_edit_delete_char(&l) < 0)
+                        if (line_edit_delete_char(&l) < 0)
                                 return -1;
                         break;
 
@@ -1120,21 +1045,22 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                 case CTRL_W:   /* delete previous word */
                         line_edit_delete_prev_word(&l);
                         break;
-                case ESC: /* begin escape sequence */
+                case ESC: { /* begin escape sequence */
 
                         /* Read the next two bytes representing the escape sequence.
                          * Use two calls to handle slow terminals returning the two
                          * chars at different times. */
                          
+                	char seq[3] = { 0 };
                         if (read(l.ifd, seq, 1) == -1)
                                 break;
 
-                        if((0 == vi_mode) || ('[' == seq[0]) || ('O' == seq[0])){
+                        if ((0 == vi_mode) || ('[' == seq[0]) || ('O' == seq[0])) {
                                 if (read(l.ifd, seq + 1, 1) == -1)
                                         break;
                         } else {
                                 vi_escape = 1;
-                                if(line_edit_process_vi(&l, seq[0], buf) < 0){
+                                if (line_edit_process_vi(&l, seq[0], buf) < 0) {
                                         return -1;
                                 }
                         }
@@ -1183,19 +1109,20 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
                                         line_edit_move_end(&l);
                                         break;
                                 }
-                        } else if(0 != vi_mode){
+                        } else if (0 != vi_mode) {
                                 vi_escape = 1;
-                                if(line_edit_process_vi(&l, seq[0], buf) < 0){
+                                if (line_edit_process_vi(&l, seq[0], buf) < 0) {
                                         return -1;
                                 }
                         }
                         break;
+		}
                 default:
-                        if((0 == vi_mode) || (0 == vi_escape)){
+                        if ((0 == vi_mode) || (0 == vi_escape)) {
                                 if (line_edit_insert(&l, c))
                                         return -1;
                         } else { /*in vi command mode*/
-                                if(line_edit_process_vi(&l, c, buf) < 0){
+                                if (line_edit_process_vi(&l, c, buf) < 0) {
                                         return -1;
                                 }
                         }
@@ -1205,18 +1132,17 @@ static int line_edit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, cons
         return l.len;
 }
 
-/**
- * @brief This function calls the line editing function line_edit() using
- *        the STDIN file descriptor set in raw mode. 
- **/
-static int line_raw(char *buf, size_t buflen, const char *prompt)
-{
-        int count;
-
+/** @brief This function calls the line editing function line_edit() using
+ *        the STDIN file descriptor set in raw mode.  **/
+static int line_raw(char *buf, size_t buflen, const char *prompt) {
+	assert(buf);
+	assert(prompt);
         if (buflen == 0) {
                 errno = EINVAL;
                 return -1;
         }
+
+        int count = 0;
         if (!isatty(STDIN_FILENO)) {
                 /* Not a tty: read from file / pipe. */
                 if (fgets(buf, (int)buflen, stdin) == NULL)
@@ -1237,35 +1163,29 @@ static int line_raw(char *buf, size_t buflen, const char *prompt)
         return count;
 }
 
-/**
- * @brief The main high level function of the linenoise library.
+/** @brief The main high level function of the linenoise library.
  *
  * The high level function that is the main API of the linenoise library.
  * This function checks if the terminal has basic capabilities, just checking
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses a dummy fgets() so that you will be able to type
- * something even in the most terminally desperate of conditions. 
- **/
-char *line_editor(const char *prompt)
-{
-        char buf[LINENOISE_MAX_LINE];
-        int count;
-
+ * something even in the most terminally desperate of conditions. **/
+char *line_editor(const char *prompt) {
+	assert(prompt);
+        char buf[LINENOISE_MAX_LINE] = { 0 };
         if (is_unsupported_term()) {
-                size_t len;
-
-                fputs(prompt,stdout);
+                fputs(prompt, stdout);
                 fflush(stdout);
                 if (fgets(buf, LINENOISE_MAX_LINE, stdin) == NULL)
                         return NULL;
-                len = strlen(buf);
+                size_t len = strlen(buf);
                 while (len && ((buf[len - 1] == '\n') || (buf[len - 1] == '\r'))) {
                         len--;
                         buf[len] = '\0';
                 }
                 return le_strdup(buf);
         } else {
-                count = line_raw(buf, LINENOISE_MAX_LINE, prompt);
+                const int count = line_raw(buf, LINENOISE_MAX_LINE, prompt);
                 if (count == -1)
                         return NULL;
                 return le_strdup(buf);
@@ -1274,16 +1194,11 @@ char *line_editor(const char *prompt)
 
 /********************************* History ***********************************/
 
-/**
- * @brief Free the history, but does not reset it. Only used when we have to
- *        exit() to avoid memory leaks that are reported by valgrind & co. 
- **/
-static void free_history(void)
-{
+/** @brief Frees the history, but does not reset it. Only used when we have to 
+      exit() to avoid memory leaks that are reported by valgrind & co.  **/
+static void free_history(void) {
         if (history) {
-                int j;
-
-                for (j = 0; j < history_len; j++) {
+                for (int j = 0; j < history_len; j++) {
                         free(history[j]);
                         history[j] = NULL;
                 }
@@ -1292,13 +1207,10 @@ static void free_history(void)
         }
 }
 
-/**
- * @brief At exit we'll try to fix the terminal to the initial conditions. 
- **/
-static void line_at_exit(void)
-{
+/** @brief At exit we'll try to fix the terminal to the initial conditions. **/
+static void line_at_exit(void) {
 #ifdef __unix__
-        if(rawmode)
+        if (rawmode)
                 disable_raw_mode(STDIN_FILENO);
 #endif
         free_history();
@@ -1315,15 +1227,13 @@ static void line_at_exit(void)
  *
  * Using a circular buffer is smarter, but a bit more complex to handle. 
  **/
-int line_history_add(const char *line)
-{
-        char *linecopy;
-
+int line_history_add(const char *line) {
+	assert(line);
         if (history_max_len == 0)
                 return 0;
 
         /* Initialization on first call. */
-        if (history == NULL) {
+        if (!history) {
                 history = malloc(sizeof(char *) * history_max_len);
                 if (history == NULL)
                         return 0;
@@ -1336,7 +1246,7 @@ int line_history_add(const char *line)
 
         /* Add an heap allocated copy of the line in the history.
          * If we reached the max length, remove the older line. */
-        linecopy = le_strdup(line);
+        char *linecopy = le_strdup(line);
         if (!linecopy)
                 return 0;
         if (history_len == history_max_len) {
@@ -1349,25 +1259,19 @@ int line_history_add(const char *line)
         return 1;
 }
 
-/**
- * @brief Set the maximum history length, reducing it when necessary.
+/** @brief Set the maximum history length, reducing it when necessary.
  *
  * Set the maximum length for the history. This function can be called even
  * if there is already some history, the function will make sure to retain
  * just the latest 'len' elements if the new history length value is smaller
- * than the amount of items already inside the history. 
- *
- **/
-int line_history_set_maxlen(int len)
-{
-        char **new;
-
+ * than the amount of items already inside the history. **/
+int line_history_set_maxlen(int len) {
         if (++len < 1)
                 return 0;
         if (history) {
                 int tocopy = history_len;
 
-                new = malloc(sizeof(char *) * len);
+                char **new = malloc(sizeof(char *) * len);
                 if (new == NULL)
                         return 0;
 
@@ -1389,43 +1293,38 @@ int line_history_set_maxlen(int len)
         return 1;
 }
 
-/**
- * @brief Save the history in the specified file. On success 0 is returned
- *         otherwise -1 is returned. 
- **/
-int line_history_save(const char *filename)
-{
+/** @brief Save the history in the specified file. On success 0 is returned
+ *         otherwise -1 is returned. **/
+int line_history_save(const char *filename) {
+	assert(filename);
         FILE *fp = fopen(filename, "w");
-        int j;
-
-        if (fp == NULL)
+        if (!fp)
                 return -1;
-        for (j = 0; j < history_len; j++)
-                fputs(history[j], fp), fputc('\n', fp);
+        for (int j = 0; j < history_len; j++) {
+                fputs(history[j], fp); 
+		fputc('\n', fp);
+	}
         fclose(fp);
         return 0;
 }
 
-/**
- * @brief Load history from a file if the file exists
+/**@brief Load history from a file if the file exists
  *
  * Load the history from the specified file. If the file does not exist
  * zero is returned and no operation is performed.
  *
  * If the file exists and the operation succeeded 0 is returned, otherwise
  * on error -1 is returned. */
-int line_history_load(const char *filename)
-{
+int line_history_load(const char *filename) {
+	assert(filename);
         FILE *fp = fopen(filename, "r");
-        char buf[LINENOISE_MAX_LINE];
+        char buf[LINENOISE_MAX_LINE] = { 0 };
 
         if (fp == NULL)
                 return -1;
 
         while (fgets(buf, LINENOISE_MAX_LINE, fp) != NULL) {
-                char *p;
-
-                p = strchr(buf, '\r');
+                char *p = strchr(buf, '\r');
                 if (!p)
                         p = strchr(buf, '\n');
                 if (p)
@@ -1434,16 +1333,14 @@ int line_history_load(const char *filename)
         }
         fclose(fp);
 
-        if(!atexit_registered)
+        if (!atexit_registered)
                 atexit(line_at_exit);
 
         return 0;
 }
 
-/**
- * @brief Turn on 'vi' editing mode
- **/
-void line_set_vi_mode(int on){
+/** @brief Turn on 'vi' editing mode **/
+void line_set_vi_mode(int on) {
         vi_mode = on;
 }
 
