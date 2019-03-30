@@ -1,12 +1,10 @@
 /*
  * @file        libline.h
- * @warning     This is a fork of the original! Do not contact the
- *              authors about bugs in *this* version!
  * @brief       A guerrilla line editing library against the idea that a
  *              line editing lib needs to be 20,000 lines of C code, header only
  * @author      Salvatore Sanfilippo
  * @author      Pieter Noordhuis
- * @author      Richard Howe
+ * @author      Richard James Howe
  * @license     BSD (included as comment)
  *
  * See libline.c for more information.
@@ -44,8 +42,7 @@
  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 #ifndef LIBLINE_H
 #define LIBLINE_H
@@ -56,24 +53,32 @@ extern "C" {
 
 #include <stddef.h>
 
-typedef struct {
-	int a;
-} libline_t;
-
 typedef struct line_completions line_completions;
 typedef void (line_completion_callback) (const char *, size_t pos, line_completions *);
 
-void line_set_vi_mode(int on);
-int  line_get_vi_mode(void);
-void line_set_completion_callback(line_completion_callback *);
-void line_add_completion(line_completions *, const char *);
+typedef struct {
+	line_completion_callback *completion_callback;
+	char **history;
+	int vi_mode, vi_escape;
+	int history_max_len, history_len, history_on;
+	int in, out; /* file descriptors */
+	int rawmode;
+} libline_t;
 
-char *line_editor(const char *prompt);
-int line_history_add(const char *line);
-int line_history_set_maxlen(int len);
-int line_history_save(const char *filename);
-int line_history_load(const char *filename);
-void line_clearscreen(void);
+void line_set_vi_mode(libline_t *, int on);
+int  line_get_vi_mode(libline_t *);
+void line_set_completion_callback(libline_t *, line_completion_callback *);
+void line_add_completion(libline_t *, line_completions *, const char *);
+
+char *line_editor(libline_t *, const char *prompt);
+int line_history_add(libline_t *, const char *line);
+int line_history_set_maxlen(libline_t *, int len);
+int line_history_save(libline_t *, const char *filename);
+int line_history_load(libline_t *, const char *filename);
+int line_clearscreen(libline_t*);
+
+int line_cleanup(libline_t *);
+int line_initialize(libline_t *);
 
 #ifdef __cplusplus
 }
