@@ -58,6 +58,11 @@ int main(int argc, char **argv) {
     while((line = linenoise("hello> ")) != NULL) {
         /* Do something with the string. */
         if (line[0] != '\0' && line[0] != '/') {
+           if (!strncmp(line, "quit", 5)) {
+                printf("Bye!\n");
+                free(line);
+                break;
+            }
             printf("echo: '%s'\n", line);
             linenoiseHistoryAdd(line); /* Add to the history. */
             linenoiseHistorySave("history.txt"); /* Save the history on disk. */
@@ -66,7 +71,7 @@ int main(int argc, char **argv) {
             int len = atoi(line+11);
             linenoiseHistorySetMaxLen(len);
         } else if (line[0] == '/') {
-            printf("Unreconized command: %s\n", line);
+            printf("Unrecognized command: %s\n", line);
         }
         free(line);
     }
