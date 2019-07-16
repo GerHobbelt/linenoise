@@ -611,7 +611,7 @@ static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCo
  *
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
-static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
+static int completeLine(struct linenoiseState *ls, char *cbuf, int clen, int *code) {
     linenoiseCompletions lc = { 0, NULL };
     int nread;
     int c = 0;
@@ -626,7 +626,7 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
             linenoiseEditInsert(ls, " ", 1);
         }
     } else {
-        nread = readCode(ls->ifd, cbuf, 32, &c);
+        nread = readCode(ls->ifd, cbuf, clen, &c);
         if (nread <= 0) {
             c = -1;
             goto END;
@@ -643,7 +643,7 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
             UNUSED(r);
 
             while(1) {
-                nread = readCode(ls->ifd, cbuf, 32, &c);
+                nread = readCode(ls->ifd, cbuf, clen, &c);
                 if (nread <= 0) {
                     c = -1;
                     goto END;
@@ -671,7 +671,7 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
         // rotate candidates
         size_t rotateIndex = 0;
         while(1) {
-            nread = readCode(ls->ifd, cbuf, 32, &c);
+            nread = readCode(ls->ifd, cbuf, clen, &c);
             if (nread <= 0) {
                 c = -1;
                 goto END;
@@ -696,7 +696,8 @@ static int completeLine(struct linenoiseState *ls, char cbuf[32]) {
 
     END:
     freeCompletions(&lc);
-    return c; /* Return last read character */
+    *code = c;
+    return nread; /* Return last read character length*/
 }
 
 /* Register a callback function to be called for tab-completion. */
@@ -1101,7 +1102,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
         if (c == 9 && completionCallback != NULL) {
-            c = completeLine(&l, cbuf);
+            nread = completeLine(&l, cbuf, sizeof(cbuf), &c);
             /* Return on errors */
             if (c < 0) return l.len;
             /* Read next character when 0 */
