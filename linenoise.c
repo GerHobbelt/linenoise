@@ -246,6 +246,9 @@ static size_t columnPos(const char *buf, size_t buf_len, size_t pos) {
     while (off < pos) {
         size_t col_len;
         size_t len = nextCharLen(buf,buf_len,off,&col_len);
+        if(len == 0) {
+            break;
+        }
         off += len;
         ret += col_len;
     }
