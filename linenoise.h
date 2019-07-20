@@ -77,6 +77,7 @@ typedef enum {
     LINENOISE_HISTORY_OP_PREV,
     LINENOISE_HISTORY_OP_DELETE,
     LINENOISE_HISTORY_OP_INIT,
+    LINENOISE_HISTORY_OP_SEARCH,
 } historyOp;
 
 typedef const char *(linenoiseHistoryCallback)(const char *buf, int *history_index, historyOp op);

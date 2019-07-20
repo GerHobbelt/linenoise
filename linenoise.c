@@ -167,6 +167,8 @@ enum KEY_ACTION{
 	ENTER = 13,         /* Enter */
 	CTRL_N = 14,        /* Ctrl-n */
 	CTRL_P = 16,        /* Ctrl-p */
+	CTRL_Q = 17,        /* Ctrl-q */
+	CTRL_R = 18,        /* Ctrl-r */
 	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
@@ -1006,6 +1008,16 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     }
 }
 
+static void linenoiseSearchHistory(struct linenoiseState *l) {
+    const char *ret = historyCallback(l->buf, NULL, LINENOISE_HISTORY_OP_SEARCH);
+    if(ret && *ret != '\0') {
+        strncpy(l->buf, ret, l->buflen);
+        l->buf[l->buflen-1] = '\0';
+        l->len = l->pos = strlen(l->buf);
+        refreshLine(l);
+    }
+}
+
 static void doHistoryOp(historyOp op) {
     historyCallback(NULL, NULL, op);
 }
@@ -1149,6 +1161,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case CTRL_N:    /* ctrl-n */
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
+            break;
+        case CTRL_R:    /* ctrl-r */
+            linenoiseSearchHistory(&l);
             break;
         case ESC:    /* escape sequence */
             /* Read the next two bytes representing the escape sequence.
