@@ -348,7 +348,7 @@ static void freeCompletions(linenoiseCompletions *lc) {
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
 static int completeLine(struct linenoiseState *ls) {
-    linenoiseCompletions lc = { 0, NULL };
+  linenoiseCompletions lc = { 0, NULL, ls->buf + ls->pos };
     int nread, nwritten;
     char c = 0;
 

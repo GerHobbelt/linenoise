@@ -46,6 +46,9 @@ extern "C" {
 typedef struct linenoiseCompletions {
   size_t len;
   char **cvec;
+  // This is not the most natural place to add this, but it's the only place
+  // that I could think to put it without breaking the linenoise API
+  const char* cursor;
 } linenoiseCompletions;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
