@@ -604,6 +604,12 @@ static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCo
     return matched ? offset : ls->pos;
 }
 
+static void kickCompletionCallback(const char *buf, size_t pos, linenoiseCompletions *lc) {
+    disableRawMode(INPUT_FD);
+    completionCallback(buf, pos, lc);
+    enableRawMode(INPUT_FD);
+}
+
 /* This is an helper function for linenoiseEdit() and is called when the
  * user types the <tab> key in order to complete the string currently in the
  * input.
@@ -615,7 +621,7 @@ static int completeLine(struct linenoiseState *ls, char *cbuf, int clen, int *co
     int nread;
     int c = 0;
 
-    completionCallback(ls->buf, ls->pos, &lc);
+    kickCompletionCallback(ls->buf, ls->pos, &lc);
     int offset = insertEstimatedSuffix(ls, &lc);
     if(lc.len == 0) {
         linenoiseBeep();
@@ -993,13 +999,20 @@ void linenoiseSetHistoryCallback(linenoiseHistoryCallback *callback) {
     historyCallback = callback;
 }
 
+static const char *kickHistoryCallback(const char *buf, int *history_index, historyOp op) {
+    disableRawMode(INPUT_FD);
+    const char *ret = historyCallback(buf, history_index, op);
+    enableRawMode(INPUT_FD);
+    return ret;
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
 #define LINENOISE_HISTORY_PREV 1
 void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     historyOp op = dir == LINENOISE_HISTORY_NEXT ? LINENOISE_HISTORY_OP_NEXT : LINENOISE_HISTORY_OP_PREV;
-    const char *ret = historyCallback(l->buf, &l->history_index, op);
+    const char *ret = kickHistoryCallback(l->buf, &l->history_index, op);
     if(ret) {
         strncpy(l->buf, ret, l->buflen);
         l->buf[l->buflen-1] = '\0';
@@ -1009,7 +1022,7 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
 }
 
 static void linenoiseSearchHistory(struct linenoiseState *l) {
-    const char *ret = historyCallback(l->buf, &l->history_index, LINENOISE_HISTORY_OP_SEARCH);
+    const char *ret = kickHistoryCallback(l->buf, &l->history_index, LINENOISE_HISTORY_OP_SEARCH);
     if(ret && *ret != '\0') {
         strncpy(l->buf, ret, l->buflen);
         l->buf[l->buflen-1] = '\0';
@@ -1019,7 +1032,7 @@ static void linenoiseSearchHistory(struct linenoiseState *l) {
 }
 
 static void doHistoryOp(historyOp op) {
-    historyCallback(NULL, NULL, op);
+    kickHistoryCallback(NULL, NULL, op);
 }
 
 /* Delete the character at the right of the cursor without altering the cursor
