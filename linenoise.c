@@ -1009,7 +1009,7 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
 }
 
 static void linenoiseSearchHistory(struct linenoiseState *l) {
-    const char *ret = historyCallback(l->buf, NULL, LINENOISE_HISTORY_OP_SEARCH);
+    const char *ret = historyCallback(l->buf, &l->history_index, LINENOISE_HISTORY_OP_SEARCH);
     if(ret && *ret != '\0') {
         strncpy(l->buf, ret, l->buflen);
         l->buf[l->buflen-1] = '\0';
