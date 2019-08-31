@@ -1240,7 +1240,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             }
             break;
         default:
-            if (c < 32 || (c >= 0x80 && c < 0xA0)) continue;   /* skip unhandled control character (include C1) */
+            if (c < 32) continue;   /* skip unhandled control character */
             if (linenoiseEditInsert(&l,cbuf,nread)) return -1;
             break;
         case CTRL_U: /* Ctrl+u, delete the whole line. */
