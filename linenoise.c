@@ -759,6 +759,17 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     refreshLine(l);
 }
 
+// First step towards allowing colored prompts
+static size_t count_prompt_len(const char* prompt) {
+  size_t len = 0;
+  unsigned char printable = 1; // How does this file not use bool anywhere?
+  for (const char* s = prompt; *s; s++) {
+    if (*s == 2) printable = 1 - printable;
+    else if (printable > 0) len++;
+  }
+  return len;
+}
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -778,7 +789,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.buf = buf;
     l.buflen = buflen;
     l.prompt = prompt;
-    l.plen = strlen(prompt);
+    l.plen = count_prompt_len(prompt);
     l.oldpos = l.pos = 0;
     l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
