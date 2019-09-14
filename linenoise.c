@@ -134,8 +134,24 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
+#include "utf8/utf8.h"
 #include "linenoise.h"
-#include "utf8.h"
+
+#ifndef USE_UTF8
+#define MAX_UTF8_LEN 1
+
+/* No utf-8 support. 1 byte = 1 char */
+#define utf8_strlen(S, B) ((B) < 0 ? (int)strlen(S) : (B))
+#define utf8_strwidth(S, B) utf8_strlen((S), (B))
+#define utf8_tounicode(S, CP) (*(CP) = (unsigned char)*(S), 1)
+#define utf8_index(C, I) (I)
+#define utf8_charlen(C) 1
+#define utf8_width(C) 1
+#else
+#define MAX_UTF8_LEN 4
+
+#define utf8_width utf8_charwidth
+#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
@@ -292,7 +308,7 @@ static void fd_printf(int fd, const char *format, ...)
     va_start(args, format);
     n = vsnprintf(buf, sizeof(buf), format, args);
     /* This will never happen because we are sure to use fd_printf() for short sequences */
-    assert(n < sizeof(buf));
+    assert(n < (int)sizeof(buf));
     va_end(args);
     IGNORE_RC(write(fd, buf, n));
 }
