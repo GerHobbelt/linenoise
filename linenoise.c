@@ -178,7 +178,7 @@ int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
 
 /* Debugging macro. */
-#if 1
+#if 0
 FILE *lndebug_fp = NULL;
 #define lndebug(...) \
     do { \
@@ -472,30 +472,25 @@ static void abFree(struct abuf *ab) {
     free(ab->b);
 }
 
+// Could make thing a little faster by combining these two functions
 #define PRINTABLE_TOGGLE '\2'
 static size_t count_visible_prompt_chars(const char* prompt) {
   size_t len = 0;
   unsigned char printable = 1; // How does this file not use bool anywhere?
-  for (const char* s = prompt; *s; s++) {
+  for (const char* s = prompt; *s; ++s) {
     if (*s == PRINTABLE_TOGGLE) printable = 1 - printable;
     else if (printable > 0) len++;
   }
   return len;
 }
 
-static const char* remove_printability_toggles(const char* prompt) {
-  struct abuf ab;
-  abInit(&ab);
-
-  const char* start = prompt;
-  for (const char* it = prompt; *it; ++it) {
-    if (*it == PRINTABLE_TOGGLE) {
-      abAppend(&ab, start, it - start);
-      start = it + 1;
-    }
+static char* remove_printability_toggles(char* prompt) {
+  for (char* s = prompt; *s;) {
+    // could speed things up by finding the end of prompt in the beginning
+    if (*s == PRINTABLE_TOGGLE) memmove(s, s+1, strlen(s+1)+1);
+    else ++s;
   }
-  abAppend(&ab, start, strlen(start)+1);
-  return ab.b;
+  return prompt;
 }
 
 
@@ -572,7 +567,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static void refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = l->plen; 
+    int plen = l->plen;
     int vpcnt = l->vpcnt;
     int rows = (vpcnt+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = (vpcnt+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
@@ -796,7 +791,7 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  * when ctrl+d is typed.
  *
  * The function returns the length of the current buffer. */
-static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
+static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, char *prompt)
 {
     struct linenoiseState l;
     
@@ -806,9 +801,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.ofd = stdout_fd;
     l.buf = buf;
     l.buflen = buflen;
+    l.vpcnt = count_visible_prompt_chars(prompt);
     l.prompt = remove_printability_toggles(prompt);
     l.plen = strlen(l.prompt);
-    l.vpcnt = count_visible_prompt_chars(prompt);
     l.oldpos = l.pos = 0;
     l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
@@ -1020,7 +1015,9 @@ static int linenoiseRaw(char *buf, size_t buflen, const char *prompt) {
     }
 
     if (enableRawMode(STDIN_FILENO) == -1) return -1;
-    count = linenoiseEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
+    char* prompt2 = strdup(prompt);
+    count = linenoiseEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt2);
+    free(prompt2);
     disableRawMode(STDIN_FILENO);
     printf("\n");
     return count;
