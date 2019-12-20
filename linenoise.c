@@ -792,7 +792,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.buf = buf;
     l.buflen = buflen;
     l.prompt = prompt;
-    l.plen = strlen(l.buf);
+    l.plen = strlen(prompt);
     l.vpcnt = count_visible_prompt_chars(prompt);
     l.oldpos = l.pos = 0;
     l.len = 0;
