@@ -472,14 +472,30 @@ static void abFree(struct abuf *ab) {
     free(ab->b);
 }
 
+#define PRINTABLE_TOGGLE '\2'
 static size_t count_visible_prompt_chars(const char* prompt) {
   size_t len = 0;
   unsigned char printable = 1; // How does this file not use bool anywhere?
   for (const char* s = prompt; *s; s++) {
-    if (*s == 2) printable = 1 - printable;
+    if (*s == PRINTABLE_TOGGLE) printable = 1 - printable;
     else if (printable > 0) len++;
   }
   return len;
+}
+
+static const char* remove_printability_toggles(const char* prompt) {
+  struct abuf ab;
+  abInit(&ab);
+
+  const char* start = prompt;
+  for (const char* it = prompt; *it; ++it) {
+    if (*it == PRINTABLE_TOGGLE) {
+      abAppend(&ab, start, it - start);
+      start = it + 1;
+    }
+  }
+  abAppend(&ab, start, strlen(start)+1);
+  return ab.b;
 }
 
 
@@ -515,8 +531,7 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int vpcnt) {
  * cursor position, and number of columns of the terminal. */
 static void refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen = strlen(l->prompt);
-    size_t vpcnt = count_visible_prompt_chars(l->prompt);
+    size_t vpcnt = l->vpcnt;
     int fd = l->ofd;
     char *buf = l->buf;
     size_t len = l->len;
@@ -557,8 +572,8 @@ static void refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static void refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = strlen(l->prompt);
-    int vpcnt = count_visible_prompt_chars(l->prompt);
+    int plen = l->plen; 
+    int vpcnt = l->vpcnt;
     int rows = (vpcnt+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = (vpcnt+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
@@ -592,7 +607,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
     abAppend(&ab,seq,strlen(seq));
 
     /* Write the prompt and the current buffer content */
-    abAppend(&ab,l->prompt,strlen(l->prompt));
+    abAppend(&ab,l->prompt,l->plen);
     abAppend(&ab,l->buf,l->len);
 
     /* Show hits if any. */
@@ -784,15 +799,15 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
 static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
 {
     struct linenoiseState l;
-
+    
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
     l.ifd = stdin_fd;
     l.ofd = stdout_fd;
     l.buf = buf;
     l.buflen = buflen;
-    l.prompt = prompt;
-    l.plen = strlen(prompt);
+    l.prompt = remove_printability_toggles(prompt);
+    l.plen = strlen(l.prompt);
     l.vpcnt = count_visible_prompt_chars(prompt);
     l.oldpos = l.pos = 0;
     l.len = 0;
@@ -808,7 +823,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
 
-    if (write(l.ofd,prompt,l.plen) == -1) return -1;
+    if (write(l.ofd,l.prompt,l.plen) == -1) return -1;
     while(1) {
         char c;
         int nread;
