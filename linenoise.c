@@ -403,6 +403,10 @@ failed:
     return 80;
 }
 
+static void updateColumns(struct linenoiseState *ls) {
+    ls->cols = getColumns(ls->ifd, ls->ofd);
+}
+
 /* Clear the screen. Used to handle ctrl+l */
 void linenoiseClearScreen(void) {
     if (write(OUTPUT_FD,"\x1b[H\x1b[2J",7) <= 0) {
@@ -669,6 +673,7 @@ static int completeLine(struct linenoiseState *ls, char *cbuf, int clen, int *co
         }
 
         if(show) {
+            updateColumns(ls);
             showAllCandidates(ls->cols, &lc);
         }
         refreshLine(ls);
@@ -928,6 +933,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void refreshLine(struct linenoiseState *l) {
+    updateColumns(l);
     if (mlmode)
         refreshMultiLine(l);
     else
