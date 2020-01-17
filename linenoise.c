@@ -1041,6 +1041,18 @@ static void doHistoryOp(historyOp op) {
     kickHistoryCallback(NULL, NULL, op);
 }
 
+/**
+ * if current cursor is not head of line. write % symbol like zsh
+ * @param l
+ */
+static int mayWriteReturnSymbol(struct linenoiseState *l) {
+    if(getCursorPosition(l->ifd, l->ofd) > 1) {
+        const char *s = "\x1b[7m%\x1b[0m\r\n";
+        if(write(l->ofd, s, strlen(s))) { return -1; }
+    }
+    return 0;
+}
+
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
 void linenoiseEditDelete(struct linenoiseState *l) {
@@ -1116,6 +1128,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 //    linenoiseHistoryAdd("");
     doHistoryOp(LINENOISE_HISTORY_OP_INIT);
 
+    mayWriteReturnSymbol(&l);
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
     while(1) {
         int c;
