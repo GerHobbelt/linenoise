@@ -133,6 +133,8 @@ static int INPUT_FD = STDIN_FILENO;
 static int OUTPUT_FD = STDOUT_FILENO;
 static int ERROR_FD = STDERR_FILENO;
 
+static int EAW = 0; /* east asian ambiguous character width */
+
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -1050,6 +1052,19 @@ static int mayWriteReturnSymbol(struct linenoiseState *l) {
         const char *s = "\x1b[7m%\x1b[0m\r\n";
         if(write(l->ofd, s, strlen(s))) { return -1; }
     }
+
+    /**
+     * check east asian width
+     */
+    if(write(l->ofd, "○", strlen("○")) == -1) { return -1; }
+    int pos = getCursorPosition(l->ifd, l->ofd);
+    EAW = pos - 1;
+
+    /**
+     * restore pos and clear line
+     */
+    const char *r = "\r\x1b[2K";
+    if(write(l->ofd, r, strlen(r))) { return -1; }
     return 0;
 }
 
@@ -1429,4 +1444,8 @@ int *linenoiseOutputFD() {
 
 int *linenoiseErrorFD() {
     return &ERROR_FD;
+}
+
+int linenoiseEastAsianWidth() {
+    return EAW;
 }

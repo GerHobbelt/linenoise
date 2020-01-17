@@ -61,6 +61,8 @@ int *linenoiseInputFD();
 int *linenoiseOutputFD();
 int *linenoiseErrorFD();
 
+int linenoiseEastAsianWidth();
+
 typedef size_t (linenoisePrevCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseNextCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseReadCode)(int fd, char *buf, size_t buf_len, int* c);
