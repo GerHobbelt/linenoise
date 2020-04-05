@@ -1372,7 +1372,7 @@ static char *linenoiseNoTTY(void) {
                 return NULL;
             }
         }
-        char c;
+        signed char c;
         if(read(INPUT_FD, &c, 1) <= 0) {
             c = EOF;
         }
