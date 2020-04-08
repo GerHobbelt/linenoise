@@ -98,6 +98,8 @@
 #include <fcntl.h>
 
 #include "../include/linenoise.h"
+
+// single header C lib
 #include "linenoise_convert_utf.h"
 
 #include <string>
@@ -111,7 +113,10 @@ using std::unique_ptr;
 
 using namespace linenoise_ng;
 
+#ifdef __cpp_lib_char8_t
+#else
 typedef unsigned char char8_t;
+#endif
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
@@ -3335,7 +3340,8 @@ int linenoiseHistorySave(const char* filename) {
 
   for (int j = 0; j < historyLen; ++j) {
     if (history[j][0] != '\0') {
-      fprintf(fp, "%s\n", history[j]);
+        // dbj casting char8_t * to char *
+      fprintf(fp, "%s\n", (const char *)history[j]);
     }
   }
 
