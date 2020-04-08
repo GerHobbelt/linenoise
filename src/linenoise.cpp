@@ -99,6 +99,27 @@
 
 #include "../include/linenoise.h"
 
+/* 
+ * DBJ changed back to C
+ * defined in wcwidth.c
+ */
+extern "C" {
+/**
+ * Recompute widths of all characters in a char32_t buffer
+ * @param text          input buffer of Unicode characters
+ * @param widths        output buffer of character widths
+ * @param charCount     number of characters in buffer
+ *
+ */
+int mk_wcwidth(char32_t ucs);
+/**
+ * Calculate a column width using mk_wcswidth()
+ * @param buf32  text to calculate
+ * @param len    length of text to calculate
+ */
+int mk_wcswidth(const char32_t* pwcs, size_t n);
+} // "C"
+
 // single header C lib
 #include "linenoise_convert_utf.h"
 
@@ -522,16 +543,6 @@ struct linenoiseCompletions {
 // make control-characters more readable
 #define ctrlChar(upperCaseASCII) (upperCaseASCII - 0x40)
 
-/**
- * Recompute widths of all characters in a char32_t buffer
- * @param text          input buffer of Unicode characters
- * @param widths        output buffer of character widths
- * @param charCount     number of characters in buffer
- */
-namespace linenoise_ng {
-int mk_wcwidth(char32_t ucs);
-}
-
 static void recomputeCharacterWidths(const char32_t* text, char* widths,
                                      int charCount) {
   for (int i = 0; i < charCount; ++i) {
@@ -567,15 +578,6 @@ static void calculateScreenPosition(int x, int y, int screenColumns,
     xOut = 0;
     ++yOut;
   }
-}
-
-/**
- * Calculate a column width using mk_wcswidth()
- * @param buf32  text to calculate
- * @param len    length of text to calculate
- */
-namespace linenoise_ng {
-int mk_wcswidth(const char32_t* pwcs, size_t n);
 }
 
 static int calculateColumnPosition(char32_t* buf32, int len) {

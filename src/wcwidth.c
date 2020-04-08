@@ -60,10 +60,12 @@
  */
 
 #include <wchar.h>
-// #include <string>
-// #include <memory>
 
-namespace linenoise_ng {
+ // NOTE! must match  line_noise_convert.h 
+#if !defined __cplusplus || (defined _MSC_VER && _MSC_VER < 1900)
+typedef unsigned short char16_t;
+typedef unsigned int char32_t;
+#endif
 
 struct interval {
   char32_t first;
@@ -223,6 +225,11 @@ int mk_wcswidth(const char32_t* pwcs, size_t n)
 
 
 /*
+ DBJ Excluded these on 2020 Apr 08
+*/
+
+#if 0
+/*
  * The following functions are the same as mk_wcwidth() and
  * mk_wcswidth(), except that spacing characters in the East Asian
  * Ambiguous (A) category as defined in Unicode Technical Report #11
@@ -297,8 +304,6 @@ int mk_wcwidth_cjk(wchar_t ucs)
 
   return mk_wcwidth(ucs);
 }
-
-
 int mk_wcswidth_cjk(const wchar_t *pwcs, size_t n)
 {
   int w, width = 0;
@@ -312,4 +317,5 @@ int mk_wcswidth_cjk(const wchar_t *pwcs, size_t n)
   return width;
 }
 
-}
+#endif // 0
+

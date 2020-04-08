@@ -1,3 +1,11 @@
+# Linenoise DBJ
+### 2020 Apr
+
+- made it proper Visual Studio project
+- convert utf is now single haeder C lib
+
+> Original readme begins here
+
 # Linenoise Next Generation
 
 A small, portable GNU readline replacement for Linux, Windows and

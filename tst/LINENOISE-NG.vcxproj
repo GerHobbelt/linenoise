@@ -51,7 +51,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\src\linenoise.cpp" />
-    <ClCompile Include="..\src\wcwidth.cpp" />
+    <ClCompile Include="..\src\wcwidth.c" />
     <ClCompile Include="example.c" />
   </ItemGroup>
   <ItemGroup>
