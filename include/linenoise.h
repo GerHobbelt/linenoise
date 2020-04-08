@@ -53,4 +53,65 @@ int linenoiseKeyType(void);
 }
 #endif
 
+/*-----------------------------------------------------------------------------------------*/
+
+#define vt100_reset "\x1b[0m"
+#define vt100_bright "\x1b[1m"
+#define vt100_dim "\x1b[2m"
+#define vt100_underscore "\x1b[4m"
+#define vt100_blink "\x1b[5m"
+#define vt100_reverse "\x1b[7m"
+#define vt100_hidden "\x1b[8m"
+
+#define vt100_black "\x1b[30m"
+#define vt100_red "\x1b[31m"
+#define vt100_green "\x1b[32m"
+#define vt100_yellow "\x1b[33m"
+#define vt100_blue "\x1b[34m"
+#define vt100_magenta "\x1b[35m"
+#define vt100_cyan "\x1b[36m"
+#define vt100_white "\x1b[37m"
+
+#define vt100_bgblack "\x1b[40m"
+#define vt100_bgred "\x1b[41m"
+#define vt100_bggreen "\x1b[42m"
+#define vt100_bgyellow "\x1b[43m"
+#define vt100_bgblue "\x1b[44m"
+#define vt100_bgmagenta "\x1b[45m"
+#define vt100_bgcyan "\x1b[46m"
+#define vt100_bgwhite "\x1b[47m"
+
+/*-----------------------------------------------------------------------------------------*/
+/*
+most of the time not needed because WIN10 2020 Q2 consoles is pre set to do VT100 esc codes
+
+requires:
+
+#include <stdio.h>
+#include <wchar.h>
+#include <windows.h>
+*/
+#ifdef _WIN32
+#include <windows.h>
+inline void set_output_mode_to_handle_virtual_terminal_sequences() 
+{
+  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (hOut == INVALID_HANDLE_VALUE) {
+    perror("GetStdHandle() failed");
+    return;
+  }
+
+  DWORD dwMode = 0;
+  if (!GetConsoleMode(hOut, &dwMode)) {
+    perror("GetConsoleMode() failed");
+    return;
+  }
+
+  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  if (!SetConsoleMode(hOut, dwMode)) {
+    perror("SetConsoleMode() failed");
+    return;
+  }
+}
+#endif /// _WIN32
 #endif /* __LINENOISE_H */

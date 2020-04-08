@@ -3390,7 +3390,7 @@ void linenoisePrintKeyCodes(void) {
 
   printf(
       "Linenoise key codes debugging mode.\n"
-      "Press keys to see scan codes. Type 'quit' at any time to exit.\n");
+      "Press keys to see scan codes. " vt100_bright vt100_red " Type 'quit' at any time to exit.\n" vt100_reset );
   if (enableRawMode() == -1) return;
   memset(quit, ' ', 4);
   while (1) {
@@ -3407,7 +3407,7 @@ void linenoisePrintKeyCodes(void) {
     quit[sizeof(quit) - 1] = c; /* Insert current char on the right. */
     if (memcmp(quit, "quit", sizeof(quit)) == 0) break;
 
-    printf("'%c' %02x (%d) (type quit to exit)\n", isprint(c) ? c : '?', (int)c,
+    printf("'%c' %02x (%d)\n", isprint(c) ? c : '?', (int)c,
            (int)c);
     printf("\r"); /* Go left edge manually, we are in raw mode. */
     fflush(stdout);
