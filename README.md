@@ -2,7 +2,7 @@
 ### 2020 Apr
 
 - made it proper Visual Studio project
-- convert utf is now single haeder C lib
+- convert utf is now single header C lib
 - wcwidth.c back to C
 
 ---
