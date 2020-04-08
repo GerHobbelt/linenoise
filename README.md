@@ -3,7 +3,9 @@
 
 - made it proper Visual Studio project
 - convert utf is now single haeder C lib
+- wcwidth.c back to C
 
+---
 > Original readme begins here
 
 # Linenoise Next Generation
