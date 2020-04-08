@@ -110,21 +110,25 @@ typedef unsigned short char16_t;
 typedef unsigned int char32_t;
 #endif
 
-typedef uint32_t UTF32;
-typedef uint16_t UTF16;
-typedef uint8_t UTF8;
+typedef uint32_t    UTF32;
+typedef uint16_t    UTF16;
+typedef uint8_t     UTF8;
 
 /* Some fundamental constants */
-#define LINENOISE_UNI_REPLACEMENT_CHAR (UTF32)0x0000FFFD
-#define LINENOISE_UNI_MAX_BMP (UTF32)0x0000FFFF
-#define LINENOISE_UNI_MAX_UTF16 (UTF32)0x0010FFFF
-#define LINENOISE_UNI_MAX_UTF32 (UTF32)0x7FFFFFFF
-#define LINENOISE_UNI_MAX_LEGAL_UTF32 (UTF32)0x0010FFFF
+enum : UTF32 {
+  LINENOISE_UNI_REPLACEMENT_CHAR = (UTF32)0x0000FFFD,
+  LINENOISE_UNI_MAX_BMP = (UTF32)0x0000FFFF,
+  LINENOISE_UNI_MAX_UTF16 = (UTF32)0x0010FFFF,
+  LINENOISE_UNI_MAX_UTF32 = (UTF32)0x7FFFFFFF,
+  LINENOISE_UNI_MAX_LEGAL_UTF32 = (UTF32)0x0010FFFF
+};
 
-static const int linenoise_halfshift = 10; /* used for shifting by 10 bits */
+enum { linenoise_halfshift = 10 }; /* used for shifting by 10 bits */
 
-static const UTF32 halfBase = 0x0010000UL;
-static const UTF32 halfMask = 0x3FFUL;
+enum : UTF32 {
+  linenoise_halfbase = (UTF32)0x0010000UL,
+  linenoise_halfmask = (UTF32)0x3FFUL
+};
 
 /* ---------------------------------------------------------------------
     The following 4 definitions are compiler-specific.
@@ -133,10 +137,12 @@ static const UTF32 halfMask = 0x3FFUL;
     All should be unsigned values to avoid sign extension during
     bit mask & shift operations.
 ------------------------------------------------------------------------ */
-#define LINENOISE_UNI_SUR_HIGH_START (UTF32)0xD800
-#define LINENOISE_UNI_SUR_HIGH_END (UTF32)0xDBFF
-#define LINENOISE_UNI_SUR_LOW_START (UTF32)0xDC00
-#define LINENOISE_UNI_SUR_LOW_END (UTF32)0xDFFF
+enum : UTF32 {
+ LINENOISE_UNI_SUR_HIGH_START = (UTF32)0xD800,
+ LINENOISE_UNI_SUR_HIGH_END = (UTF32)0xDBFF,
+ LINENOISE_UNI_SUR_LOW_START = (UTF32)0xDC00,
+ LINENOISE_UNI_SUR_LOW_END = (UTF32)0xDFFF
+};
 
 /* --------------------------------------------------------------------- */
 typedef enum ConversionResult {
@@ -322,9 +328,9 @@ ConvertUTF8toUTF16(const UTF8** sourceStart,
         result = targetExhausted;
         break;
       }
-      ch -= halfBase;
+      ch -= linenoise_halfbase;
       *target++ = (UTF16)((ch >> linenoise_halfshift) + LINENOISE_UNI_SUR_HIGH_START);
-      *target++ = (UTF16)((ch & halfMask) + LINENOISE_UNI_SUR_LOW_START);
+      *target++ = (UTF16)((ch & linenoise_halfmask) + LINENOISE_UNI_SUR_LOW_START);
     }
   }
   *sourceStart = source;
@@ -358,7 +364,7 @@ ConvertUTF16toUTF8(const UTF16** sourceStart,
         /* If it's a low surrogate, convert to UTF32. */
         if (ch2 >= LINENOISE_UNI_SUR_LOW_START && ch2 <= LINENOISE_UNI_SUR_LOW_END) {
           ch = ((ch - LINENOISE_UNI_SUR_HIGH_START) << linenoise_halfshift) +
-               (ch2 - LINENOISE_UNI_SUR_LOW_START) + halfBase;
+               (ch2 - LINENOISE_UNI_SUR_LOW_START) + linenoise_halfbase;
           ++source;
         } else if (flags ==
                    strictConversion) { /* it's an unpaired high surrogate */
@@ -592,7 +598,7 @@ ConvertUTF16toUTF32(const UTF16** sourceStart,
         /* If it's a low surrogate, convert to UTF32. */
         if (ch2 >= LINENOISE_UNI_SUR_LOW_START && ch2 <= LINENOISE_UNI_SUR_LOW_END) {
           ch = ((ch - LINENOISE_UNI_SUR_HIGH_START) << linenoise_halfshift) +
-               (ch2 - LINENOISE_UNI_SUR_LOW_START) + halfBase;
+               (ch2 - LINENOISE_UNI_SUR_LOW_START) + linenoise_halfbase;
           ++source;
         } else if (flags ==
                    strictConversion) { /* it's an unpaired high surrogate */
@@ -675,9 +681,9 @@ ConvertUTF32toUTF16(const UTF32** sourceStart,
         result = targetExhausted;
         break;
       }
-      ch -= halfBase;
+      ch -= linenoise_halfbase;
       *target++ = (UTF16)((ch >> linenoise_halfshift) + LINENOISE_UNI_SUR_HIGH_START);
-      *target++ = (UTF16)((ch & halfMask) + LINENOISE_UNI_SUR_LOW_START);
+      *target++ = (UTF16)((ch & linenoise_halfmask) + LINENOISE_UNI_SUR_LOW_START);
     }
   }
   *sourceStart = source;
@@ -705,16 +711,6 @@ inline bool isLegalUTF8Sequence(const UTF8* source, const UTF8* sourceEnd) {
 } // namespace linenoise_ng 
 #endif  // __cplusplus
 
-/* --------------------------------------------------------------------- */
-#undef LINENOISE_UNI_REPLACEMENT_CHAR 
-#undef LINENOISE_UNI_MAX_BMP 
-#undef LINENOISE_UNI_MAX_UTF16
-#undef LINENOISE_UNI_MAX_UTF32
-#undef LINENOISE_UNI_MAX_LEGAL_UTF32
-#undef LINENOISE_UNI_SUR_HIGH_START
-#undef LINENOISE_UNI_SUR_HIGH_END
-#undef LINENOISE_UNI_SUR_LOW_START
-#undef LINENOISE_UNI_SUR_LOW_END
 /* --------------------------------------------------------------------- */
 /* The interface converts a whole buffer to avoid function-call overhead.
  * Constants have been gathered. Loops & conditionals have been removed as
