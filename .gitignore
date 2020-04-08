@@ -1,3 +1,10 @@
+.vs
+*.filters
+*.user
+Debug
+Release
+x64
+
 CMakeCache.txt
 CMakeFiles
 Makefile

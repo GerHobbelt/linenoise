@@ -1,4 +1,4 @@
-#include "linenoise.h"
+#include "../include/linenoise.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -60,8 +60,8 @@
  */
 
 #include <wchar.h>
-#include <string>
-#include <memory>
+// #include <string>
+// #include <memory>
 
 namespace linenoise_ng {
 
