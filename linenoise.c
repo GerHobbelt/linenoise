@@ -719,6 +719,28 @@ void linenoiseEditMoveEnd(struct linenoiseState *l) {
     }
 }
 
+/* Move cursor to the previous word. */
+void linenoiseEditMoveLeftWord(struct linenoiseState *l) {
+    linenoiseEditMoveLeft(l);
+    while (l->pos > 0 && !isalnum((int)l->buf[l->pos]))
+        l->pos--;
+    while (l->pos > 0 && isalnum((int)l->buf[l->pos]))
+        l->pos--;
+    if (l->pos != 0)
+        l->pos++;
+    refreshLine(l);
+}
+
+/* Move cursor to the next word. */
+void linenoiseEditMoveRightWord(struct linenoiseState *l) {
+    linenoiseEditMoveRight(l);
+    while (l->pos != l->len && !isalnum((int)l->buf[l->pos]))
+        l->pos++;
+    while (l->pos != l->len && isalnum((int)l->buf[l->pos]))
+        l->pos++;
+    refreshLine(l);
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
@@ -821,7 +843,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     while(1) {
         char c;
         int nread;
-        char seq[3];
+        char seq[5];
 
         nread = read(l.ifd,&c,1);
         if (nread <= 0) return l.len;
@@ -906,6 +928,19 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                         case '3': /* Delete key. */
                             linenoiseEditDelete(&l);
                             break;
+                        }
+                    }
+                    if (seq[1] == '1' && seq[2] == ';') {
+                        if (read(l.ifd,seq+3,2) == -1) break;
+                        if (seq[3] == '5') {
+                            switch(seq[4]) {
+                            case 'C': /* Forward Word */
+                                linenoiseEditMoveRightWord(&l);
+                                break;
+                            case 'D': /* Backward Word */
+                                linenoiseEditMoveLeftWord(&l);
+                                break;
+                            }
                         }
                     }
                 } else {
