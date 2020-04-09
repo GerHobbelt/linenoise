@@ -139,14 +139,14 @@ using namespace linenoise_ng;
 typedef unsigned char char8_t;
 #endif
 
-static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
+static conversion_result copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
   const UTF8* sourceStart = reinterpret_cast<const UTF8*>(src);
   const UTF8* sourceEnd = sourceStart + strlen(src);
   UTF32* targetStart = reinterpret_cast<UTF32*>(dst);
   UTF32* targetEnd = targetStart + dstSize;
 
-  ConversionResult res = ConvertUTF8toUTF32(
+  conversion_result res = convert_utf8_to_utf32(
       &sourceStart, sourceEnd, &targetStart, targetEnd, lenientConversion);
 
   if (res == conversionOK) {
@@ -160,7 +160,7 @@ static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
   return res;
 }
 
-static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
+static conversion_result copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char8_t* src) {
   return copyString8to32(dst, dstSize, dstCount,
                          reinterpret_cast<const char*>(src));
@@ -222,7 +222,7 @@ static void copyString32to16(char16_t* dst, size_t dstSize, size_t* dstCount,
   char16_t* targetStart = reinterpret_cast<char16_t*>(dst);
   char16_t* targetEnd = targetStart + dstSize;
 
-  ConversionResult res = ConvertUTF32toUTF16(
+  conversion_result res = convert_utf32_to_utf16(
       &sourceStart, sourceEnd, &targetStart, targetEnd, lenientConversion);
 
   if (res == conversionOK) {
@@ -242,7 +242,7 @@ static void copyString32to8(char* dst, size_t dstSize, size_t* dstCount,
   UTF8* targetStart = reinterpret_cast<UTF8*>(dst);
   UTF8* targetEnd = targetStart + dstSize;
 
-  ConversionResult res = ConvertUTF32toUTF8(
+  conversion_result res = convert_utf32_to_utf8(
       &sourceStart, sourceEnd, &targetStart, targetEnd, lenientConversion);
 
   if (res == conversionOK) {
@@ -1367,7 +1367,7 @@ static char32_t readUnicodeCharacter(void) {
       utf8String[utf8Count] = 0;
       char32_t unicodeChar[2];
       size_t ucharCount;
-      ConversionResult res =
+      conversion_result res =
           copyString8to32(unicodeChar, 2, ucharCount, utf8String);
       if (res == conversionOK && ucharCount) {
         utf8Count = 0;
