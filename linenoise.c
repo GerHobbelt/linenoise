@@ -1050,7 +1050,7 @@ static void doHistoryOp(historyOp op) {
 static int mayWriteReturnSymbol(struct linenoiseState *l) {
     if(getCursorPosition(l->ifd, l->ofd) > 1) {
         const char *s = "\x1b[7m%\x1b[0m\r\n";
-        if(write(l->ofd, s, strlen(s))) { return -1; }
+        if(write(l->ofd, s, strlen(s)) == -1) { return -1; }
     }
 
     /**
@@ -1064,7 +1064,7 @@ static int mayWriteReturnSymbol(struct linenoiseState *l) {
      * restore pos and clear line
      */
     const char *r = "\r\x1b[2K";
-    if(write(l->ofd, r, strlen(r))) { return -1; }
+    if(write(l->ofd, r, strlen(r)) == -1) { return -1; }
     return 0;
 }
 
