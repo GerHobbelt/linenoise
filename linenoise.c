@@ -567,7 +567,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static void refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = l->plen;
+    //int plen = l->plen;
     int vpcnt = l->vpcnt;
     int rows = (vpcnt+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = (vpcnt+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
