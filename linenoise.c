@@ -443,6 +443,8 @@ do { \
 #define logprintf(fmt, ...)
 #endif
 
+static size_t promptTextColumnLen(const char *prompt, size_t plen);
+
 static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     unsigned int *sizeTable = malloc(sizeof(unsigned int) * lc->len);
 
@@ -451,6 +453,7 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     size_t index;
     for(index = 0; index < lc->len; index++) {
         size_t s = strlen(lc->cvec[index]);
+        s = promptTextColumnLen(lc->cvec[index], s);
         if(s > maxSize) {
             maxSize = s;
         }
