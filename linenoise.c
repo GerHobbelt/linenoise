@@ -229,18 +229,15 @@ static size_t defaultReadCode(int fd, char *buf, size_t buf_len, int* c) {
 static linenoisePrevCharLen *prevCharLen = defaultPrevCharLen;
 static linenoiseNextCharLen *nextCharLen = defaultNextCharLen;
 static linenoiseReadCode *readCode = defaultReadCode;
-static linenoiseStrLen *strLen = strlen;
 
 /* Set used defined encoding functions */
 void linenoiseSetEncodingFunctions(
     linenoisePrevCharLen *prevCharLenFunc,
     linenoiseNextCharLen *nextCharLenFunc,
-    linenoiseReadCode *readCodeFunc,
-    linenoiseStrLen *strLenFunc) {
+    linenoiseReadCode *readCodeFunc) {
     prevCharLen = prevCharLenFunc;
     nextCharLen = nextCharLenFunc;
     readCode = readCodeFunc;
-    strLen = strLenFunc;
 }
 
 /* Get column length from begining of buffer to current byte position */
@@ -453,7 +450,7 @@ static void showAllCandidates(size_t cols, linenoiseCompletions *lc) {
     size_t maxSize = 0;
     size_t index;
     for(index = 0; index < lc->len; index++) {
-        size_t s = strLen(lc->cvec[index]);
+        size_t s = strlen(lc->cvec[index]);
         if(s > maxSize) {
             maxSize = s;
         }
