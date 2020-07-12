@@ -1047,7 +1047,7 @@ static void doHistoryOp(historyOp op) {
  * if current cursor is not head of line. write % symbol like zsh
  * @param l
  */
-static int mayWriteReturnSymbol(struct linenoiseState *l) {
+static int preparePrompt(struct linenoiseState *l) {
     if(getCursorPosition(l->ifd, l->ofd) > 1) {
         const char *s = "\x1b[7m%\x1b[0m\r\n";
         if(write(l->ofd, s, strlen(s)) == -1) { return -1; }
@@ -1065,6 +1065,16 @@ static int mayWriteReturnSymbol(struct linenoiseState *l) {
      */
     const char *r = "\r\x1b[2K";
     if(write(l->ofd, r, strlen(r)) == -1) { return -1; }
+
+    /**
+     * adjust prompt
+     */
+    const char *ptr = strrchr(l->prompt, '\n');
+    if(ptr) {
+        if(write(l->ofd, l->prompt, ptr - l->prompt + 1) == -1) { return -1; }
+        l->prompt = ptr + 1;
+        l->plen = strlen(l->prompt);
+    }
     return 0;
 }
 
@@ -1143,8 +1153,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 //    linenoiseHistoryAdd("");
     doHistoryOp(LINENOISE_HISTORY_OP_INIT);
 
-    mayWriteReturnSymbol(&l);
-    if (write(l.ofd,prompt,l.plen) == -1) return -1;
+    preparePrompt(&l);
+    if (write(l.ofd,l.prompt,l.plen) == -1) return -1;
     while(1) {
         int c;
         char cbuf[32]; // large enough for any encoding?
