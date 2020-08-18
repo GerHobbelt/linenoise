@@ -74,6 +74,15 @@ static int history_len = 0;
 static char **history = NULL;
 static struct HashTable ht;
 
+int LINENOISE_FOREGROUND_BLUE = FOREGROUND_BLUE;
+int LINENOISE_FOREGROUND_GREEN = FOREGROUND_GREEN;
+int LINENOISE_FOREGROUND_RED = FOREGROUND_RED;
+int LINENOISE_FOREGROUND_INTENSITY = FOREGROUND_INTENSITY;
+int LINENOISE_BACKGROUND_BLUE = BACKGROUND_BLUE;
+int LINENOISE_BACKGROUND_GREEN = BACKGROUND_GREEN;
+int LINENOISE_BACKGROUND_RED = BACKGROUND_RED;
+int LINENOISE_BACKGROUND_INTENSITY = BACKGROUND_INTENSITY;
+
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
  * functionalities. */

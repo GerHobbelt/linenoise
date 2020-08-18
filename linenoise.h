@@ -1,14 +1,7 @@
-/* linenoise.h -- VERSION 1.0
- *
- * Guerrilla line editing library against the idea that a line editing lib
- * needs to be 20,000 lines of C code.
- *
- * See linenoise.c for more information.
- *
- * ------------------------------------------------------------------------
- *
+/*
  * Copyright (c) 2010-2014, Salvatore Sanfilippo <antirez at gmail dot com>
  * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2020, Shadow Yuan <shadow-yuan@qq.com>
  *
  * All rights reserved.
  *
@@ -34,6 +27,7 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
  */
 
 #ifndef __LINENOISE_H
@@ -47,6 +41,16 @@ typedef struct linenoiseCompletions {
   size_t len;
   char **cvec;
 } linenoiseCompletions;
+
+// color hits
+extern int LINENOISE_FOREGROUND_BLUE;
+extern int LINENOISE_FOREGROUND_GREEN;
+extern int LINENOISE_FOREGROUND_RED;
+extern int LINENOISE_FOREGROUND_INTENSITY;
+extern int LINENOISE_BACKGROUND_BLUE;
+extern int LINENOISE_BACKGROUND_GREEN;
+extern int LINENOISE_BACKGROUND_RED;
+extern int LINENOISE_BACKGROUND_INTENSITY;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
