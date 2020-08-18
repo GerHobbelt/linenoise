@@ -28,18 +28,13 @@
  */
 
 #include "ht.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 //
 // hash function
 //
-
-static inline uint32_t GetUInt32ByLittleEndian(const char* ptr) {
-  const uint8_t* buffer = (const uint8_t*)(ptr);
-  return ((uint32_t)(buffer[0])) |
-         ((uint32_t)(buffer[1]) << 8) |
-         ((uint32_t)(buffer[2]) << 16) |
-         ((uint32_t)(buffer[3]) << 24);
-}
 
 uint32_t CalcHash(const char* data, size_t n, uint32_t seed) {
     const uint32_t m = 0xc6a4a793;
@@ -137,12 +132,12 @@ void HashTableInit(struct HashTable * ptr) {
     ptr->length = 0;
     ptr->elems = 0;
     ptr->list = NULL;
-    ResizeHashTable(ptr);
+    HashTableResize(ptr);
 }
 
 void HashTableResize(struct HashTable * ptr) {
+    struct HashNode** new_list = NULL;
     uint32_t new_length = 4;
-    void** new_list = NULL;
     uint32_t count = 0;
 
     while (new_length < ptr->elems) {
@@ -180,7 +175,7 @@ void HashTableResize(struct HashTable * ptr) {
 }
 
 void* HashTableInsert(struct HashTable* ht, uint32_t key, void* value) {
-    uint32_t hash = CalcHash(&key, sizeof(key), 0);
+    uint32_t hash = CalcHash((const char*)&key, sizeof(key), 0);
     struct HashNode** head = &ht->list[hash & (ht->length - 1)];
     struct HashNode* obj = NULL;
     void* old_value = NULL;
@@ -217,7 +212,7 @@ void* HashTableInsert(struct HashTable* ht, uint32_t key, void* value) {
 }
 
 void* HashTableRemove(struct HashTable* ht, uint32_t key) {
-    uint32_t hash = CalcHash(&key, sizeof(key), 0);
+    uint32_t hash = CalcHash((const char*)&key, sizeof(key), 0);
     struct HashNode** head = &ht->list[hash & (ht->length - 1)];
     struct HashNode* obj = NULL;
     void* old_value = NULL;
@@ -238,7 +233,7 @@ void* HashTableRemove(struct HashTable* ht, uint32_t key) {
 }
 
 void* HashTableLookup(struct HashTable* ht, uint32_t key) {
-    uint32_t hash = CalcHash(&key, sizeof(key), 0);
+    uint32_t hash = CalcHash((const char*)&key, sizeof(key), 0);
     struct HashNode* head = ht->list[hash & (ht->length - 1)];
     struct HashNode* obj = NULL;
     if (head) {
@@ -248,4 +243,39 @@ void* HashTableLookup(struct HashTable* ht, uint32_t key) {
         }
     }
     return NULL;
+}
+
+void HashTableEmpty(struct HashTable* ht, void(callback)(uint32_t, void*)) {
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < ht->length; i++) {
+        struct HashNode* entry, *he;
+
+        he = ht->list[i];
+
+        if (he == NULL) {
+            continue;
+        }
+
+        entry = he->next;
+
+        do {
+            struct HashNode* tmp = entry;
+            entry = entry->next;
+
+            if (callback) {
+                callback(tmp->key, tmp->value);
+            }
+
+            free(tmp);
+            count++;
+
+            if (count == ht->elems) {
+                goto done;
+            }
+        } while (entry != he);
+    }
+done:
+    free(ht->list);
+    ht->elems = ht->length = 0;
+    ht->list = NULL;
 }

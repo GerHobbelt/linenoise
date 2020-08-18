@@ -60,6 +60,16 @@ void* HashTableRemove(struct HashTable* ht, uint32_t key);
 
 void* HashTableLookup(struct HashTable* ht, uint32_t key);
 
+void HashTableEmpty(struct HashTable* ht, void(callback)(uint32_t, void*));
+
+static inline uint32_t GetUInt32ByLittleEndian(const char* ptr) {
+  const uint8_t* buffer = (const uint8_t*)(ptr);
+  return ((uint32_t)(buffer[0])) |
+         ((uint32_t)(buffer[1]) << 8) |
+         ((uint32_t)(buffer[2]) << 16) |
+         ((uint32_t)(buffer[3]) << 24);
+}
+
 #ifdef __cplusplus
 }
 #endif
