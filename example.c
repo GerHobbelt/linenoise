@@ -12,7 +12,7 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 }
 
 char *hints(const char *buf, int *color, int *bold) {
-    if (!strcasecmp(buf,"hello")) {
+    if (!_stricmp(buf,"hello")) {
         *color = 35;
         *bold = 0;
         return " World";
@@ -40,6 +40,8 @@ int main(int argc, char **argv) {
         }
     }
 
+    linenoiseInit();
+
     /* Set the completion callback. This will be called every time the
      * user uses the <tab> key. */
     linenoiseSetCompletionCallback(completion);
@@ -55,7 +57,7 @@ int main(int argc, char **argv) {
      *
      * The typed string is returned as a malloc() allocated string by
      * linenoise, so the user needs to free() it. */
-    
+
     while((line = linenoise("hello> ")) != NULL) {
         /* Do something with the string. */
         if (line[0] != '\0' && line[0] != '/') {
@@ -75,5 +77,7 @@ int main(int argc, char **argv) {
         }
         free(line);
     }
+
+    linenoiseCleanup();
     return 0;
 }
