@@ -53,7 +53,7 @@ extern int LINENOISE_BACKGROUND_RED;
 extern int LINENOISE_BACKGROUND_INTENSITY;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
-typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
+typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);  // bold: Ignored
 typedef void(linenoiseFreeHintsCallback)(void *);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseSetHintsCallback(linenoiseHintsCallback *);

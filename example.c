@@ -13,7 +13,7 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 
 char *hints(const char *buf, int *color, int *bold) {
     if (!_stricmp(buf,"hello")) {
-        *color = 35;
+        *color = LINENOISE_BACKGROUND_RED;
         *bold = 0;
         return " World";
     }
