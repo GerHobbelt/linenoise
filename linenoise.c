@@ -111,7 +111,9 @@
 #else
 /* Microsoft headers don't like old POSIX names */
 #define strdup _strdup
+#if _MSC_VER < 1900
 #define snprintf _snprintf
+#endif /* _MSC_VER */
 #endif
 #else
 #include <termios.h>
@@ -134,7 +136,6 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-#include "utf8/utf8.h"
 #include "linenoise.h"
 
 #ifndef USE_UTF8
@@ -148,6 +149,8 @@
 #define utf8_charlen(C) 1
 #define utf8_width(C) 1
 #else
+#include "utf8/utf8.h"
+
 #define MAX_UTF8_LEN 4
 
 #define utf8_width utf8_charwidth
@@ -878,7 +881,7 @@ static void refreshLine(const char *prompt, struct current *current)
     /* Should intercept SIGWINCH. For now, just get the size every time */
     getWindowSize(current);
 
-    plen = strlen(prompt);
+    plen = (int)strlen(prompt);
     pchars = utf8_strwidth(prompt, utf8_strlen(prompt, plen));
 
     /* Scan the prompt for embedded ansi color control sequences and
@@ -973,7 +976,7 @@ static void set_current(struct current *current, const char *str)
 {
     strncpy(current->buf, str, current->bufmax);
     current->buf[current->bufmax - 1] = 0;
-    current->len = strlen(current->buf);
+    current->len = (int)strlen(current->buf);
     current->pos = current->chars = utf8_strlen(current->buf, current->len);
 }
 
@@ -1152,7 +1155,7 @@ static int completeLine(struct current *current) {
             if (i < lc.len) {
                 struct current tmp = *current;
                 tmp.buf = lc.cvec[i];
-                tmp.pos = tmp.len = strlen(tmp.buf);
+                tmp.pos = tmp.len = (int)strlen(tmp.buf);
                 tmp.chars = utf8_strlen(tmp.buf, tmp.len);
                 refreshLine(current->prompt, &tmp);
             } else {
@@ -1325,7 +1328,7 @@ process_char:
                         if (rchars) {
                             int p = utf8_index(rbuf, --rchars);
                             rbuf[p] = 0;
-                            rlen = strlen(rbuf);
+                            rlen = (int)strlen(rbuf);
                         }
                         continue;
                     }
@@ -1379,7 +1382,7 @@ process_char:
                             }
                             /* Copy the matching line and set the cursor position */
                             set_current(current,history[searchpos]);
-                            current->pos = utf8_strlen(history[searchpos], p - history[searchpos]);
+                            current->pos = utf8_strlen(history[searchpos], (int)(p - history[searchpos]));
                             break;
                         }
                     }
@@ -1542,7 +1545,7 @@ char *linenoise(const char *prompt)
         if (fgets(buf, sizeof(buf), stdin) == NULL) {
             return NULL;
         }
-        count = strlen(buf);
+        count = (int)strlen(buf);
         if (count && buf[count-1] == '\n') {
             count--;
             buf[count] = '\0';

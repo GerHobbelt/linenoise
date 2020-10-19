@@ -37,10 +37,6 @@
 #ifndef __LINENOISE_H
 #define __LINENOISE_H
 
-#ifndef USE_UTF8
-#define USE_UTF8 1
-#endif
-
 #include <stddef.h>
 
 #ifndef NO_COMPLETION

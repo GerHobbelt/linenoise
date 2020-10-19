@@ -4,7 +4,7 @@ linenoise_example: linenoise.h linenoise.c example.c
 	$(CC) -Wall -W -Os -g -o $@ linenoise.c example.c
 
 linenoise_utf8_example: linenoise.c utf8/utf8.c example.c
-	$(CC) -DNO_COMPLETION -DUSE_UTF8 -Wall -W -Os -g -o $@ linenoise.c utf8/utf8.c example.c
+	$(CC) -DUSE_UTF8 -liconv -Wall -W -Os -g -o $@ linenoise.c utf8/utf8.c example.c
 
 linenoise_cpp_example: linenoise.h linenoise.c
 	g++ -Wall -W -Os -g -o $@ linenoise.c example.c
