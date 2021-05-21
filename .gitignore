@@ -1,3 +1,10 @@
-linenoise_example
-*.dSYM
 history.txt
+
+*.dSYM
+*.a
+
+# CMake created files
+
+**/CMakeFiles/
+**/Makefile
+**/cmake_install.cmake
