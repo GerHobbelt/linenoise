@@ -61,8 +61,6 @@ int *linenoiseInputFD();
 int *linenoiseOutputFD();
 int *linenoiseErrorFD();
 
-int linenoiseEastAsianWidth();
-
 typedef size_t (linenoisePrevCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseNextCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseReadCode)(int fd, char *buf, size_t buf_len, int* c);
@@ -83,6 +81,11 @@ typedef enum {
 typedef const char *(linenoiseHistoryCallback)(const char *buf, int *history_index, historyOp op);
 
 void linenoiseSetHistoryCallback(linenoiseHistoryCallback *callback);
+
+typedef int(linenoisePropertyCheckCallback)(const char *str, size_t pos);
+
+void linenoiseSetPropertyCheckCallback(linenoisePropertyCheckCallback *callback,
+                                       const char *const strs[], size_t strc);
 
 #ifdef __cplusplus
 }

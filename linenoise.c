@@ -133,8 +133,9 @@ static int INPUT_FD = STDIN_FILENO;
 static int OUTPUT_FD = STDOUT_FILENO;
 static int ERROR_FD = STDERR_FILENO;
 
-static int EAW = 0; /* east asian ambiguous character width */
-
+static const char *const *propertyStrs = NULL;
+static size_t propertyStrc = 0;
+static linenoisePropertyCheckCallback *propertyCheckCallback = NULL;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -737,6 +738,30 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
     lc->cvec[lc->len++] = copy;
 }
 
+void linenoiseSetPropertyCheckCallback(linenoisePropertyCheckCallback *callback,
+                                       const char *const strs[], size_t strc) {
+  propertyStrs = strs;
+  propertyStrc = strc;
+  propertyCheckCallback = callback;
+}
+
+static void checkProperty(struct linenoiseState *l) {
+  if (!propertyStrs || propertyStrc == 0 || !propertyCheckCallback) { return; }
+
+  for (size_t i = 0; i < propertyStrc; i++) {
+    const char *str = propertyStrs[i];
+    if (write(l->ofd, str, strlen(str)) == -1) { return; }
+    int pos = getCursorPosition(l->ifd, l->ofd);
+    /**
+     * restore pos and clear line
+     */
+    const char *r = "\r\x1b[2K";
+    if(write(l->ofd, r, strlen(r)) == -1) { return; }
+
+    if (!propertyCheckCallback || propertyCheckCallback(str, pos) != 0) { return; }
+  }
+}
+
 /* =========================== Line editing ================================= */
 
 /* We define a very simple "append buffer" structure, that is an heap
@@ -1053,18 +1078,7 @@ static int preparePrompt(struct linenoiseState *l) {
         if(write(l->ofd, s, strlen(s)) == -1) { return -1; }
     }
 
-    /**
-     * check east asian width
-     */
-    if(write(l->ofd, "○", strlen("○")) == -1) { return -1; }
-    int pos = getCursorPosition(l->ifd, l->ofd);
-    EAW = pos - 1;
-
-    /**
-     * restore pos and clear line
-     */
-    const char *r = "\r\x1b[2K";
-    if(write(l->ofd, r, strlen(r)) == -1) { return -1; }
+    checkProperty(l);
 
     /**
      * adjust prompt
@@ -1454,8 +1468,4 @@ int *linenoiseOutputFD() {
 
 int *linenoiseErrorFD() {
     return &ERROR_FD;
-}
-
-int linenoiseEastAsianWidth() {
-    return EAW;
 }
