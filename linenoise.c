@@ -847,6 +847,30 @@ void linenoiseEditMoveEnd(struct linenoiseState *l) {
     }
 }
 
+/* Move cursor on the left. */
+void linenoiseEditMoveLeftWord(struct linenoiseState *l) {
+    size_t newpos;
+    while (l->pos > 0){
+        l->pos -= prevCharLen(l->buf,l->len,l->pos,NULL);
+        if (!isspace(l->buf[l->pos])) break;
+    }
+    while (l->pos > 0){
+        newpos = l->pos - prevCharLen(l->buf,l->len,l->pos,NULL);
+        if (isspace(l->buf[newpos])) break;
+        l->pos = newpos;
+    }
+    refreshLine(l);
+}
+
+/* Move cursor on the right. */
+void linenoiseEditMoveRightWord(struct linenoiseState *l) {
+    while (l->pos != l->len &&  isspace(l->buf[l->pos]))
+        l->pos += nextCharLen(l->buf,l->len,l->pos,NULL);
+    while (l->pos != l->len && !isspace(l->buf[l->pos]))
+        l->pos += nextCharLen(l->buf,l->len,l->pos,NULL);
+    refreshLine(l);
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
@@ -952,7 +976,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         int c;
         char cbuf[32]; // large enough for any encoding?
         int nread;
-        char seq[3];
+        char seq[32] = {0};
 
         nread = readCode(l.ifd,cbuf,sizeof(cbuf),&c);
         if (nread <= 0) return l.len;
@@ -1025,6 +1049,18 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
              * Use two calls to handle slow terminals returning the two
              * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
+#if __APPLE__
+            /* ESC f sequences. */
+            else if (seq[0] == 'f') {
+                linenoiseEditMoveRightWord(&l);
+                break;
+            }
+            /* ESC b sequences. */
+            else if (seq[0] == 'b') {
+                linenoiseEditMoveLeftWord(&l);
+                break;
+            }
+#endif
             if (read(l.ifd,seq+1,1) == -1) break;
 
             /* ESC [ sequences. */
@@ -1037,6 +1073,20 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                         case '3': /* Delete key. */
                             linenoiseEditDelete(&l);
                             break;
+                        }
+                    } else if (seq[2] == ';') {
+                        /* Extended escape, read additional byte. */
+                        if (read(l.ifd,seq+3,1) == -1) break;
+                        if (seq[3] == '5') {
+                            /* Extended escape, read additional byte. */
+                            if (read(l.ifd,seq+4,1) == -1) break;
+                            if (seq[4] == 'C') {
+                                linenoiseEditMoveRightWord(&l);
+                                break;
+                            } else if (seq[4] == 'D') {
+                                linenoiseEditMoveLeftWord(&l);
+                                break;
+                            }
                         }
                     }
                 } else {
