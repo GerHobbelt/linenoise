@@ -51,6 +51,9 @@ void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 typedef int(linenoiseCharacterCallback)(const char *, size_t, char);
 void linenoiseSetCharacterCallback(linenoiseCharacterCallback *, char);
 
+typedef const char *(linenoiseHistoryCallback)(const char *);
+void linenoiseSetHistoryCallback(linenoiseHistoryCallback *);
+
 char *linenoise(const char *prompt);
 int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
@@ -58,5 +61,6 @@ int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);
 void linenoiseHistoryFree(void);
 char **linenoiseHistory(int *len);
+int linenoiseCols(void);
 
 #endif /* __LINENOISE_H */

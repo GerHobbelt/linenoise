@@ -15,7 +15,7 @@
  * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  * Copyright (c) 2011, Steve Bennett <steveb at workware dot net dot au>
- * Copyright (c) 2011, Alan DeKok <steveb at freeradius dot org>
+ * Copyright (c) 2011, Alan DeKok <aland at freeradius dot org>
  *
  * All rights reserved.
  *
@@ -159,6 +159,8 @@ static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
 
+static linenoiseHistoryCallback *historyCallback = NULL;
+
 /* Structure to contain the status of the current (being edited) line */
 struct current {
     char *buf;  /* Current buffer. Always null terminated */
@@ -242,7 +244,7 @@ fatal:
     raw.c_cflag |= (CS8);
     /* local modes - choing off, canonical off, no extended functions,
      * no signal chars (^Z,^C) */
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN) | ISIG;
     /* control chars - set return condition: min number of bytes and timer.
      * We want read to return every single byte, without timeout. */
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
@@ -328,16 +330,16 @@ static void setCursorPos(struct current *current, int x)
  */
 static int fd_read_char(int fd, int timeout)
 {
+    int rcode;
     struct pollfd p;
     unsigned char c;
 
     p.fd = fd;
     p.events = POLLIN;
 
-    if (poll(&p, 1, timeout) == 0) {
-        /* timeout */
-        return -1;
-    }
+    rcode = poll(&p, 1, timeout);
+    if (rcode <= 0) return -1;	/* timeout or interrupt */
+
     if (read(fd, &c, 1) != 1) {
         return -1;
     }
@@ -903,6 +905,13 @@ static int completeLine(struct current *current) {
 
             switch(c) {
                 case '\t': /* tab */
+		   if (lc.len == 1) {
+			   set_current(current,lc.cvec[0]);
+			   c = 0;
+			   stop = 1;
+			   break;
+		    }
+
                     i = (i+1) % (lc.len+1);
                     if (i == lc.len) beep();
                     break;
@@ -916,7 +925,7 @@ static int completeLine(struct current *current) {
                 default:
                     /* Update buffer and return */
                     if (i < lc.len) {
-                        set_current(current,lc.cvec[i]);
+			    set_current(current,lc.cvec[i]);
                     }
                     stop = 1;
                     break;
@@ -968,7 +977,11 @@ static int linenoisePrompt(struct current *current) {
 		if (c == 0) continue;
 
 process_char:
-        if (c == -1) return current->len;
+        if (c == -1) {
+	    set_current(current, "");
+            return 0;
+	}
+
 #ifdef USE_TERMIOS
         if (c == 27) {   /* escape sequence */
             c = check_special(current->fd);
@@ -1168,8 +1181,10 @@ process_char:
             if (history_len > 1) {
                 /* Update the current history entry before to
                  * overwrite it with tne next one. */
+#if 0
                 free(history[history_len-1-history_index]);
                 history[history_len-1-history_index] = strdup(current->buf);
+#endif
                 /* Show the new entry */
                 history_index += dir;
                 if (history_index < 0) {
@@ -1179,7 +1194,12 @@ process_char:
                     history_index = history_len-1;
                     break;
                 }
-                set_current(current, history[history_len-1-history_index]);
+
+		if (!historyCallback) {
+			set_current(current, history[history_len-1-history_index]);
+		} else {
+			set_current(current, historyCallback(history[history_len-1-history_index]));
+		}
                 refreshLine(current->prompt, current);
             }
             break;
@@ -1408,4 +1428,18 @@ char **linenoiseHistory(int *len) {
         *len = history_len;
     }
     return history;
+}
+
+int linenoiseCols(void)
+{
+    struct current current;
+
+    getWindowSize(&current);
+
+    return current.cols;
+}
+
+void linenoiseSetHistoryCallback(linenoiseHistoryCallback *fn)
+{
+	historyCallback = fn;
 }
