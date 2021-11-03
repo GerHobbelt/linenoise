@@ -1425,6 +1425,7 @@ char *linenoise(const char *prompt) {
     int count;
 
     if (!isatty(INPUT_FD)) {
+        errno = 0;
         /* Not a tty: read from file / pipe. In this mode we don't want any
          * limit to the line size, so we call a function to handle that. */
         return linenoiseNoTTY();
