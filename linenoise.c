@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------------
  *
  * Copyright (c) 2010-2016, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+s * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  *
  * All rights reserved.
  *
@@ -131,25 +131,6 @@ static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
-
-/* The linenoiseState structure represents the state during line editing.
- * We pass this state to functions implementing specific editing
- * functionalities. */
-struct linenoiseState {
-    int ifd;            /* Terminal stdin file descriptor. */
-    int ofd;            /* Terminal stdout file descriptor. */
-    char *buf;          /* Edited line buffer. */
-    size_t buflen;      /* Edited line buffer size. */
-    const char *prompt; /* Prompt to display. */
-    size_t plen;        /* Prompt length. */
-    size_t vpcnt;       /* Visible prompt character count. */
-    size_t pos;         /* Current cursor position. */
-    size_t oldpos;      /* Previous refresh cursor position. */
-    size_t len;         /* Current edited line length. */
-    size_t cols;        /* Number of columns in terminal. */
-    size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
-    int history_index;  /* The history index we are currently editing. */
-};
 
 enum KEY_ACTION{
 	KEY_NULL = 0,	    /* NULL */
@@ -788,7 +769,7 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  *
  * Returns -1 on error
  * Returns  0 when the user has not finished giving input
- * Returns +1 when the user hits enter  
+ * Returns +1 when the user hits enter
  */
 static int linenoiseSingleEdit(struct linenoiseState *l, char* buf) {
   char c;
@@ -946,6 +927,33 @@ static int linenoiseSingleEdit(struct linenoiseState *l, char* buf) {
   return 0;
 }
 
+/*
+ * Initializes a linenoiseState object for use by the "Edit" functions
+ *
+ * Expects 'fd' to already be in "raw mode" so every key pressed will be returned ASAP to read()
+ */
+static void linenoiseInitializeState(struct linenoiseState *l, int stdin_fd,
+                                     int stdout_fd, char *buf, size_t buflen, char* prompt) {
+  /* Populate the linenoise state that we pass to functions implementing
+   * specific editing functionalities. */
+  l->ifd = stdin_fd;
+  l->ofd = stdout_fd;
+  l->buf = buf;
+  l->buflen = buflen;
+  l->vpcnt = count_visible_prompt_chars(prompt);
+  l->prompt = remove_printability_toggles(prompt);
+  l->plen = strlen(l->prompt);
+  l->oldpos = l->pos = 0;
+  l->len = 0;
+  l->cols = getColumns(stdin_fd, stdout_fd);
+  l->maxrows = 0;
+  l->history_index = 0;
+
+  /* Buffer starts empty. */
+  l->buf[0] = '\0';
+  l->buflen--; /* Make sure there is always space for the nulterm */
+}
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -957,25 +965,7 @@ static int linenoiseSingleEdit(struct linenoiseState *l, char* buf) {
 static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, char *prompt)
 {
     struct linenoiseState l;
-    
-    /* Populate the linenoise state that we pass to functions implementing
-     * specific editing functionalities. */
-    l.ifd = stdin_fd;
-    l.ofd = stdout_fd;
-    l.buf = buf;
-    l.buflen = buflen;
-    l.vpcnt = count_visible_prompt_chars(prompt);
-    l.prompt = remove_printability_toggles(prompt);
-    l.plen = strlen(l.prompt);
-    l.oldpos = l.pos = 0;
-    l.len = 0;
-    l.cols = getColumns(stdin_fd, stdout_fd);
-    l.maxrows = 0;
-    l.history_index = 0;
-
-    /* Buffer starts empty. */
-    l.buf[0] = '\0';
-    l.buflen--; /* Make sure there is always space for the nulterm */
+    linenoiseInitializeState(&l, stdin_fd, stdout_fd, buf, buflen, prompt);
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
@@ -1072,6 +1062,54 @@ static char *linenoiseNoTTY(void) {
             len++;
         }
     }
+}
+
+/*
+ * A nonblocking version of the 'linenoise' function.
+ *
+ * Returns NULL if the user has not finished entering their input
+ * Otherwise, returns the user's input
+ *
+ * 'state' should point to NULL when first called
+ *
+ * This function is not robust to errors or low functionality terminals since it's just
+ * something I added for one of my projects
+ */
+char *linenoisenb(const char *prompt, struct linenoiseState** state) {
+  if (!state) return NULL;
+  
+  char buf[LINENOISE_MAX_LINE];
+  size_t buflen = LINENOISE_MAX_LINE;
+  
+  if (!*state) {
+    *state = malloc(sizeof **state);
+
+    char* prompt2 = strdup(prompt);
+    linenoiseInitializeState(*state, STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt2);
+
+    /* The latest history entry is always our current buffer, that
+     * initially is just an empty string. */
+    linenoiseHistoryAdd("");
+
+    struct linenoiseState* l = *state;
+    if (write(l->ofd,l->prompt,l->plen) == -1) return NULL;
+    //free(prompt2);
+  }
+
+  if (enableRawMode(STDIN_FILENO) == -1) return NULL;
+  char* ret = NULL;
+  
+  struct linenoiseState* l = *state;
+  if (linenoiseSingleEdit(l, buf) == 1) {
+    l->done = 1;
+
+    free((char*)l->prompt);
+    
+    ret = strdup(buf);
+  }
+
+  disableRawMode(STDIN_FILENO);
+  return ret;
 }
 
 /* The high level function that is the main API of the linenoise library.
