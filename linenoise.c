@@ -1080,6 +1080,8 @@ static char *linenoiseNoTTY(void) {
 
 /*
  * A nonblocking version of the 'linenoise' function.
+ * The client is responsible for displaying prompt as well as the buffer being edited.
+ * This buffer can be accessed as (*state)->buf
  *
  * Returns NULL if the user has not finished entering their input
  * Otherwise, returns the user's input
