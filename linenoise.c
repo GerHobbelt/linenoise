@@ -111,10 +111,10 @@ s * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <poll.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#include <unistd.h>
 #include "linenoise.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -764,6 +764,17 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     refreshLine(l);
 }
 
+// I don't know if it was actually necessary for me to introduce these functions
+static unsigned char kbhit() {
+  struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+  if (poll(&pfd, 1, 1) <= 0) return 0;
+  return pfd.revents & POLLIN;
+}
+
+static int get_key() {
+  return kbhit() ? getchar() : 0;
+}
+
 /*
  * Performs the work of processing a single keystroke
  *
@@ -773,12 +784,15 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  */
 static int linenoiseSingleEdit(struct linenoiseState *l, char* buf) {
   char c;
-  int nread;
   char seq[3];
 
+  /*
   nread = read(l->ifd,&c,1);
   if (nread <= 0) return 1;
-
+  */
+  c = get_key();
+  if (c == 0) return 0;
+  
   /* Only autocomplete when the callback is set. It returns < 0 when
    * there was an error reading from fd. Otherwise it will return the
    * character that should be handled next. */
