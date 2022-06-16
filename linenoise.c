@@ -117,6 +117,15 @@
 #include <unistd.h>
 #include "linenoise.h"
 
+#ifndef LINENOISE_COMPAT
+#define LINENOISE_COMPAT 1
+#elif   LINENOISE_COMPAT
+#undef  LINENOISE_COMPAT
+#define LINENOISE_COMPAT 1
+#else
+#undef  LINENOISE_COMPAT
+#define LINENOISE_COMPAT 0
+#endif
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 #define UNUSED(x) (void)(x)
@@ -129,6 +138,9 @@ static struct termios orig_termios; /* In order to restore at exit.*/
 static int maskmode = 0; /* Show "***" instead of input. For passwords. */
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
+static int ignorespaces = 0; /* Ignore spaces mode. Default is no. */
+static int ignoredups = LINENOISE_COMPAT; /* Ignore duplicates mode. Default varies. */
+static int erasedups = 0; /* Erase duplicates mode. Default is no. */
 static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
@@ -295,6 +307,21 @@ void linenoiseMaskModeDisable(void) {
 /* Set if to use or not the multi line mode. */
 void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
+}
+
+/* Set if to ignore or not lines beginning with spaces. */
+void linenoiseSetIgnoreSpaces(int is){
+    ignorespaces = is;
+}
+
+/* Set if to ignore or not duplicate lines. */
+void linenoiseSetIgnoreDups(int id){
+    ignoredups = id;
+}
+
+/* Set if to erase or not duplicate lines. */
+void linenoiseSetEraseDups(int ed){
+    erasedups = ed;
 }
 
 /* Return true if the terminal name is in the list of terminals we know are
@@ -1316,8 +1343,26 @@ int linenoiseHistoryAdd(const char *line) {
         memset(history,0,(sizeof(char*)*history_max_len));
     }
 
+    /* Don't add space-prefixed lines if they're ignored. */
+    if (ignorespaces && isspace(*line)) return 0;
+
+    /* Erase duplicated lines. */
+    if (erasedups && history_len) {
+        int i, history_new_len;
+
+        for (i = history_new_len = 0; i<history_len; i++) {
+            history[history_new_len] = history[i];
+            if (strcmp(history[i], line))
+                history_new_len++;
+            else
+                free(history[i]);
+        }
+
+        history_len = history_new_len;
+    }
+
     /* Don't add duplicated lines. */
-    if (history_len && !strcmp(history[history_len-1], line)) return 0;
+    if (history_len && ignoredups && !strcmp(history[history_len-1], line)) return 0;
 
     /* Add an heap allocated copy of the line in the history.
      * If we reached the max length, remove the older line. */
