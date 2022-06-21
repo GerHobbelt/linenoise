@@ -1377,7 +1377,8 @@ int linenoiseHistorySave(const char *filename) {
     if (fp == NULL) return -1;
     chmod(filename,S_IRUSR|S_IWUSR);
     for (j = 0; j < history_len; j++)
-        fprintf(fp,"%s\n",history[j]);
+        if (j < history_len-1 || *history[j])
+            fprintf(fp,"%s\n",history[j]);
     fclose(fp);
     return 0;
 }
