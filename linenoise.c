@@ -112,8 +112,15 @@
 #define HAVE_UNISTD_H
 #else
 /* Microsoft headers don't like old POSIX names */
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#if !defined(strdup)
 #define strdup _strdup
+#endif
+#if !defined(snprintf)
 #define snprintf _snprintf
+#endif
 #endif
 #else
 #include <termios.h>
@@ -131,7 +138,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include <stdlib.h>
 #include <sys/types.h>
 
 #include "linenoise.h"
@@ -544,7 +550,7 @@ static int outputChars(struct current *current, const char *buf, int len)
     COORD pos = { current->x, current->y };
     DWORD n;
 	
-    WriteConsoleOutputCharacter(current->outh, buf, len, pos, &n);
+    WriteConsoleOutputCharacterA(current->outh, buf, len, pos, &n);
     current->x += len;
     return 0;
 }
