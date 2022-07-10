@@ -87,6 +87,10 @@ typedef int(linenoisePropertyCheckCallback)(const char *str, size_t pos);
 void linenoiseSetPropertyCheckCallback(linenoisePropertyCheckCallback *callback,
                                        const char *const strs[], size_t strc);
 
+typedef const char *(linenoiseHighlightCallback)(const char *buf, size_t buf_len, size_t *ret_len);
+
+void linenoiseSetHighlightCallback(linenoiseHighlightCallback *callback);
+
 #ifdef __cplusplus
 }
 #endif

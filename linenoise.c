@@ -136,6 +136,7 @@ static int ERROR_FD = STDERR_FILENO;
 static const char *const *propertyStrs = NULL;
 static size_t propertyStrc = 0;
 static linenoisePropertyCheckCallback *propertyCheckCallback = NULL;
+static linenoiseHighlightCallback *highlightCallback = NULL;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -762,6 +763,22 @@ static void checkProperty(struct linenoiseState *l) {
   }
 }
 
+void linenoiseSetHighlightCallback(linenoiseHighlightCallback *callback) {
+  highlightCallback = callback;
+}
+
+static const char *doHighlight(const char *buf, size_t buf_len, size_t *ret_len) {
+  if (highlightCallback) {
+    return highlightCallback(buf, buf_len, ret_len);
+  } else {
+    /**
+     * if callback is not set, return itself
+     */
+    *ret_len = buf_len;
+    return buf;
+  }
+}
+
 /* =========================== Line editing ================================= */
 
 /* We define a very simple "append buffer" structure, that is an heap
@@ -911,7 +928,9 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    abAppend(&ab,l->buf,l->len);
+    size_t ret_len;
+    const char *ret = doHighlight(l->buf, l->len, &ret_len);
+    abAppend(&ab,ret,ret_len);
 
     /* Get column length to cursor position */
     colpos2 = columnPosForMultiLine(l->buf,l->len,l->pos,l->cols,pcollen);
