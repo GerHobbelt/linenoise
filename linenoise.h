@@ -43,7 +43,12 @@
 extern "C" {
 #endif
 
+
+#define LINENOISE_COMPLETION_ATTR_INTR ((unsigned int)(1 << 0))
+#define LINENOISE_COMPLETION_ATTR_NOSP ((unsigned int)(1 << 1))
+
 typedef struct linenoiseCompletions {
+  size_t attr;
   size_t len;
   char **cvec;
 } linenoiseCompletions;

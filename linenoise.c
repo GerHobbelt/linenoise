@@ -602,7 +602,7 @@ static size_t insertEstimatedSuffix(struct linenoiseState *ls, const linenoiseCo
         memcpy(inserting, prefix + (len - suffixSize), suffixSize);
         linenoiseEditInsert(ls, inserting, suffixSize);
         free(inserting);
-    } else if(lc->len == 1) {   // if candidate dose not match previous token, insert it.
+    } else if(lc->len == 1) {   // if candidate does not match previous token, insert it.
         linenoiseEditInsert(ls, prefix, len);
     }
 
@@ -625,19 +625,24 @@ static void kickCompletionCallback(const char *buf, size_t pos, linenoiseComplet
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
 static int completeLine(struct linenoiseState *ls, char *cbuf, int clen, int *code) {
-    linenoiseCompletions lc = { 0, NULL };
-    int nread;
+    linenoiseCompletions lc = { 0, 0, NULL };
+    int nread = 0;
     int c = 0;
 
     kickCompletionCallback(ls->buf, ls->pos, &lc);
     int offset = insertEstimatedSuffix(ls, &lc);
+    if(lc.attr & LINENOISE_COMPLETION_ATTR_INTR) {
+      c = CTRL_C;
+      nread = -1;
+      goto END;
+    }
     if(lc.len == 0) {
         linenoiseBeep();
     } else if(lc.len == 1) {
-        size_t csize = strlen(lc.cvec[0]);
-        if(lc.cvec[0][csize - 1] != '/') {
-            linenoiseEditInsert(ls, " ", 1);
+        if(lc.attr & LINENOISE_COMPLETION_ATTR_NOSP) {
+          goto END;
         }
+        linenoiseEditInsert(ls, " ", 1);
     } else {
         nread = readCode(ls->ifd, cbuf, clen, &c);
         if (nread <= 0) {
