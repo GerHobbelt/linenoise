@@ -475,7 +475,7 @@ static int fd_read(struct current *current)
     }
     buf[n] = 0;
     /* decode and return the character */
-    utf8_tounicode(buf, &c);
+    utf8_tounicode((const char*) buf, &c);
 #endif
     return c;
 }
@@ -1021,6 +1021,10 @@ struct line_editing_mode
 static struct line_editing_mode line_editing_mode =
 {
     0, 0
+    , 0
+#ifdef USE_TERMIOS
+    , 0, 0
+#endif
 };
 
 #if !defined USE_PTHREADS && defined(USE_WINCONSOLE)
@@ -2156,7 +2160,7 @@ void linenoiseSetPromptAttr(struct linenoiseTextAttr const *textAttr)
 
 #if !defined (USE_WINCONSOLE)
 
-static int setTextAttr(int fd, struct linenoiseTextAttr *textAttr)
+static int setTextAttr(int fd, struct linenoiseTextAttr const *textAttr)
 {
     char buf[32];
     int pos;
@@ -2222,7 +2226,7 @@ static int outputCharsAttr(struct current *current, const char *buf, int len, st
     return res;
 }
 
-static void printLineFromStart(int fd, const struct linenoiseTextWithAttr *textWithAttr, size_t n) {
+static void printLineFromStart(int fd, struct linenoiseTextWithAttr const *textWithAttr, size_t n) {
     struct previous_mode mode;
     int res;
     size_t i;
@@ -2235,7 +2239,7 @@ static void printLineFromStart(int fd, const struct linenoiseTextWithAttr *textW
     res = enableOriginalMode(&mode);
 
     textAttr = NULL;
-    for (int i = 0; i != n; ++i) {
+    for (i = 0; i != n; ++i) {
         if (res == 0) {
             if (textWithAttr[i].attr != textAttr) {
                 textAttr = textWithAttr[i].attr;
