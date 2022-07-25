@@ -390,8 +390,11 @@ static void setCursorPos(struct current *current, int x)
 {
     if (x > 0)
         fd_printf(current->fd, "\r\x1b[%dC", x);
-    else
-        write(current->fd, "\r", 1);
+    else {
+        ssize_t ws;
+        ws = write(current->fd, "\r", 1);
+        (void) ws;
+    }
 }
 
 /**
@@ -421,7 +424,9 @@ static int fd_read_char(int fd, int timeout)
     if (p[1].revents & POLLIN)
     {
         char tmp;
-        read(p[1].fd, &tmp, 1);
+        ssize_t rsz;
+        rsz = read(p[1].fd, &tmp, 1);
+        (void)rsz;
         return -1;
     }
 
@@ -433,8 +438,11 @@ static int fd_read_char(int fd, int timeout)
 
 static void ensure_interrupt_pipe()
 {
-    if (interrupt_pipe[1] == -1)
-        pipe(interrupt_pipe);
+    if (interrupt_pipe[1] == -1) {
+        int r;
+        r = pipe(interrupt_pipe);
+        (void)r;
+    }
 }
 
 /**
@@ -2164,8 +2172,11 @@ static int setTextAttr(int fd, struct linenoiseTextAttr const *textAttr)
 {
     char buf[32];
     int pos;
+    ssize_t wsz;
+
     if (!isatty(fd))
         return -1;
+
     pos = snprintf(buf, 32, "\x1b[0");
     if (textAttr != NULL) {
         int bold = textAttr->bold_fg;
@@ -2208,7 +2219,8 @@ static int setTextAttr(int fd, struct linenoiseTextAttr const *textAttr)
         }
     }
     pos += snprintf(buf + pos, 32 - pos, "m");
-    write(fd, buf, pos);
+    wsz = write(fd, buf, pos);
+    (void)wsz;
     return 0;
 }
 
@@ -2230,11 +2242,14 @@ static void printLineFromStart(int fd, struct linenoiseTextWithAttr const *textW
     struct previous_mode mode;
     int res;
     size_t i;
+    ssize_t wsz;
     struct linenoiseTextAttr const* textAttr;
 
     lineEditModeCritical_Enter();
-    if (!line_editing_mode.current)
-        write(fd, &CRLF, 1);
+    if (!line_editing_mode.current) {
+        wsz = write(fd, &CRLF, 1);
+        (void) wsz;
+    }
 
     res = enableOriginalMode(&mode);
 
@@ -2249,14 +2264,16 @@ static void printLineFromStart(int fd, struct linenoiseTextWithAttr const *textW
         if (textWithAttr[i].text != NULL) {
             size_t len;
             len = strlen(textWithAttr[i].text);
-            write(fd, textWithAttr[i].text, len);
+            wsz = write(fd, textWithAttr[i].text, len);
+            (void) wsz;
         }
     }
 
     if (textAttr != NULL)
         setTextAttr(fd, NULL);
 
-    write(fd, &CRLF, 2);
+    wsz = write(fd, &CRLF, 2);
+    (void)wsz;
     fsync(fd);
     disableOriginalMode(&mode);
     lineEditModeCritical_Leave();
@@ -2289,7 +2306,9 @@ void linenoiseErrorAttrLine(struct linenoiseTextWithAttr const * textWithAttr, s
 void linenoiseCancel()
 {
     static const char tmp[] = {0};
-    write(interrupt_pipe[1], tmp, 1);
+    ssize_t wsz;
+    wsz = write(interrupt_pipe[1], tmp, 1);
+    (void)wsz;
 }
 
 int linenoiseWinSize(int *columns, int *rows)
