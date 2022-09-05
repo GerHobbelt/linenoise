@@ -69,11 +69,15 @@ int *linenoiseErrorFD();
 typedef size_t (linenoisePrevCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseNextCharLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 typedef size_t (linenoiseReadCode)(int fd, char *buf, size_t buf_len, int* c);
+typedef size_t (linenoisePrevWordLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
+typedef size_t (linenoiseNextWordLen)(const char *buf, size_t buf_len, size_t pos, size_t *col_len);
 
 void linenoiseSetEncodingFunctions(
     linenoisePrevCharLen *prevCharLenFunc,
     linenoiseNextCharLen *nextCharLenFunc,
-    linenoiseReadCode *readCodeFunc);
+    linenoiseReadCode *readCodeFunc,
+    linenoisePrevWordLen *prevWordLenFunc,
+    linenoiseNextWordLen *nextWordLenFunc);
 
 typedef enum {
     LINENOISE_HISTORY_OP_NEXT,

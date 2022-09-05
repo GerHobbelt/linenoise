@@ -231,15 +231,21 @@ static size_t defaultReadCode(int fd, char *buf, size_t buf_len, int* c) {
 static linenoisePrevCharLen *prevCharLen = defaultPrevCharLen;
 static linenoiseNextCharLen *nextCharLen = defaultNextCharLen;
 static linenoiseReadCode *readCode = defaultReadCode;
+static linenoisePrevWordLen *prevWordLen = NULL;
+static linenoiseNextWordLen *nextWordLen = NULL;
 
 /* Set used defined encoding functions */
 void linenoiseSetEncodingFunctions(
     linenoisePrevCharLen *prevCharLenFunc,
     linenoiseNextCharLen *nextCharLenFunc,
-    linenoiseReadCode *readCodeFunc) {
+    linenoiseReadCode *readCodeFunc,
+    linenoisePrevWordLen *prevWordLenFunc,
+    linenoiseNextWordLen *nextWordLenFunc) {
     prevCharLen = prevCharLenFunc;
     nextCharLen = nextCharLenFunc;
     readCode = readCodeFunc;
+    prevWordLen = prevWordLenFunc;
+    nextWordLen = nextWordLenFunc;
 }
 
 /* Get column length from begining of buffer to current byte position */
@@ -1143,17 +1149,26 @@ void linenoiseEditBackspace(struct linenoiseState *l) {
 /* Delete the previosu word, maintaining the cursor at the start of the
  * current word. */
 void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
-    size_t old_pos = l->pos;
-    size_t diff;
+    if(prevWordLen && l->pos > 0 && l->len > 0) {
+      int wordLen = prevWordLen(l->buf, l->len, l->pos, NULL);
+      memmove(l->buf+l->pos-wordLen,l->buf+l->pos,l->len-l->pos);
+      l->pos-=wordLen;
+      l->len-=wordLen;
+      l->buf[l->len] = '\0';
+      refreshLine(l);
+    } else {
+      size_t old_pos = l->pos;
+      size_t diff;
 
-    while (l->pos > 0 && l->buf[l->pos-1] == ' ')
+      while (l->pos > 0 && l->buf[l->pos-1] == ' ')
         l->pos--;
-    while (l->pos > 0 && l->buf[l->pos-1] != ' ')
+      while (l->pos > 0 && l->buf[l->pos-1] != ' ')
         l->pos--;
-    diff = old_pos - l->pos;
-    memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
-    l->len -= diff;
-    refreshLine(l);
+      diff = old_pos - l->pos;
+      memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
+      l->len -= diff;
+      refreshLine(l);
+    }
 }
 
 /* This function is the core of the line editing capability of linenoise.
