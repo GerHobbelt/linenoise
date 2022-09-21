@@ -133,7 +133,7 @@ using std::vector;
 using std::unique_ptr;
 using namespace linenoise_ng;
 
-typedef unsigned char char8_t;
+// typedef unsigned char char8_t; // causes "redeclaration of C++ built-in type ‘char8_t’ [-fpermissive]""
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
