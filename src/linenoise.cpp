@@ -3371,7 +3371,7 @@ int linenoiseHistorySave(const char* filename) {
 
   for (int j = 0; j < historyLen; ++j) {
     if (history[j][0] != '\0') {
-      fprintf(fp, "%s\n", history[j]);
+      fprintf(fp, "%s\n", (char*)history[j]);
     }
   }
 
