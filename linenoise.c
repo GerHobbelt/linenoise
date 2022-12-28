@@ -633,6 +633,9 @@ static void refreshMultiLine(struct linenoiseState *l) {
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void refreshLine(struct linenoiseState *l) {
+    // l->done should only be true if calling the blocking version of linenoise
+    // With the nonblocking version, the client is responsible for display prompt/user input 
+    if (!l || !l->done) return;
     if (mlmode)
         refreshMultiLine(l);
     else
@@ -786,10 +789,6 @@ static int linenoiseSingleEdit(struct linenoiseState *l, char* buf) {
   char c;
   char seq[3];
 
-  /*
-  nread = read(l->ifd,&c,1);
-  if (nread <= 0) return 1;
-  */
   c = get_key();
   if (c == 0) return 0;
   
@@ -962,6 +961,7 @@ static void linenoiseInitializeState(struct linenoiseState *l, int stdin_fd,
   l->cols = getColumns(stdin_fd, stdout_fd);
   l->maxrows = 0;
   l->history_index = 0;
+  l->done = 0;
 
   /* Buffer starts empty. */
   l->buf[0] = '\0';
@@ -980,6 +980,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 {
     struct linenoiseState l;
     linenoiseInitializeState(&l, stdin_fd, stdout_fd, buf, buflen, prompt);
+    l.done = 1;
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
@@ -1107,8 +1108,6 @@ char *linenoisenb(const char *prompt, struct linenoiseState** state) {
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
 
-    struct linenoiseState* l = *state;
-    if (write(l->ofd,l->prompt,l->plen) == -1) return NULL;
     //free(prompt2);
   }
 
