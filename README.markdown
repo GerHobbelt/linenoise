@@ -1,4 +1,3 @@
-[![Build Status](https://travis-ci.org/jarvisfriends/linenoise.svg?branch=master)](https://travis-ci.org/jarvisfriends/linenoise)
 
 # Linenoise
 
@@ -11,6 +10,7 @@ MongoDB, and Android.
 * Hints (suggestions at the right of the prompt as you type).
 * About 1,100 lines of BSD license source code.
 * Only uses a subset of VT100 escapes (ANSI.SYS compatible).
+
 
 ## Can a line editing library be 20k lines of code?
 
@@ -50,10 +50,13 @@ Please test it everywhere you can and report back!
 
 ## Let's push this forward!
 
+Please fork it and add something interesting and send me a pull request. What's especially interesting are fixes, new key bindings, completion.
+
 Patches should be provided in the respect of Linenoise sensibility for small
 easy to understand code.
 
 Send feedbacks to antirez at gmail
+
 
 # The API
 
@@ -88,6 +91,7 @@ this:
         linenoiseFree(line); /* Or just free(line) if you use libc malloc. */
     }
 
+
 ## Single line VS multi line editing
 
 By default, Linenoise uses single line editing, that is, a single row on the
@@ -101,6 +105,7 @@ In order to enable multi line editing use the following API call:
     linenoiseSetMultiLine(1);
 
 You can disable it using `0` as argument.
+
 
 ## History
 
@@ -127,6 +132,7 @@ function.
 Linenoise has direct support for persisting the history into an history
 file. The functions `linenoiseHistorySave` and `linenoiseHistoryLoad` do
 just that. Both functions return -1 on error and 0 on success.
+
 
 ## Completion
 
@@ -159,6 +165,7 @@ a list of items that are good completions by using `linenoiseAddCompletion`.
 
 If you want to test the completion feature, compile the example program
 with `make`, run it, type `h` and press `<TAB>`.
+
 
 ## Hints
 
@@ -218,6 +225,7 @@ Color codes are:
     cyan = 36
     white = 37;
 
+
 ## Screen handling
 
 Sometimes you may want to clear the screen as a result of something the
@@ -225,7 +233,9 @@ user typed. You can do this by calling the following function:
 
     void linenoiseClearScreen(void);
 
+
 ## Related projects
 
 * [Linenoise NG](https://github.com/arangodb/linenoise-ng) is a fork of Linenoise that aims to add more advanced features like UTF-8 support, Windows support and other features. Uses C++ instead of C as development language.
 * [Linenoise-swift](https://github.com/andybest/linenoise-swift) is a reimplementation of Linenoise written in Swift.
+

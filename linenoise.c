@@ -103,19 +103,45 @@ s * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  *
  */
 
-#include <termios.h>
-#include <unistd.h>
+#ifdef _WIN32 /* Windows platform, either MinGW or Visual Studio (MSVC) */
+#include <windows.h>
+#include <fcntl.h>
+#define USE_WINCONSOLE
+#ifdef __MINGW32__
+#define HAVE_UNISTD_H
+#else
+/* Microsoft headers don't like old POSIX names */
 #include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#if !defined(strdup)
+#define strdup _strdup
+#endif
+#if !defined(snprintf)
+#define snprintf _snprintf
+#endif
+#endif
+#else
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <sys/poll.h>
+#define USE_TERMIOS
+#define HAVE_UNISTD_H
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include <stdlib.h>
 #include <ctype.h>
-#include <poll.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/ioctl.h>
+
 #include "linenoise.h"
+
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
