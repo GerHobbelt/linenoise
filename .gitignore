@@ -1,7 +1,13 @@
+# Files we don't need committed
+*~
+*.bak
+*.user
 linenoise_example
+*.a
 *.dSYM
-history.txt
-
-/buck-out
-/.buckd
-.buckconfig.local
+*.o
+example
+*.exe
+*.stackdump
+core
+gmon.out
