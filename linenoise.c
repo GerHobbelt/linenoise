@@ -110,15 +110,20 @@
 #define HAVE_UNISTD_H
 #else
 /* Microsoft headers don't like old POSIX names */
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#if !defined(strdup)
 #define strdup _strdup
-#if _MSC_VER < 1900
+#endif
+#if !defined(snprintf)
 #define snprintf _snprintf
-#endif /* _MSC_VER */
+#endif
 #endif
 #else
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <poll.h>
+#include <sys/poll.h>
 #define USE_TERMIOS
 #define HAVE_UNISTD_H
 #endif
@@ -149,7 +154,7 @@
 #define utf8_charlen(C) 1
 #define utf8_width(C) 1
 #else
-#include "utf8/utf8.h"
+#include "utf8.h"
 
 #define MAX_UTF8_LEN 4
 

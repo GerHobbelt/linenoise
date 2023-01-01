@@ -39,7 +39,12 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef NO_COMPLETION
+
 typedef struct linenoiseCompletions {
   size_t len;
   char **cvec;
@@ -123,5 +128,9 @@ char **linenoiseHistory(int *len);
  * Returns the number of display columns in the current terminal.
  */
 int linenoiseColumns(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __LINENOISE_H */
