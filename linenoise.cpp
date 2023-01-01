@@ -114,7 +114,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
-#include <unistd.h>
 #include "linenoise.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -328,6 +327,29 @@ static int getColumns(int ifd, int ofd) {
 
 failed:
     return 80;
+}
+
+/* Get the length of the string ignoring escape-sequences */
+static int strlenPerceived(const char* str) {
+	int len = 0;
+	if (str) {
+		int escaping = 0;
+		while(*str) {
+			if (escaping) { /* was terminating char reached? */
+				if(*str >= 0x40 && *str <= 0x7E)
+					escaping = 0;
+			}
+			else if(*str == '\x1b') {
+				escaping = 1;
+				if (str[1] == '[') str++;
+			}
+			else {
+				len++;
+			}
+			str++;
+		}
+	}
+	return len;
 }
 
 /* Clear the screen. Used to handle ctrl+l */
@@ -557,7 +579,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     snprintf(seq,64,"\x1b[0K");
     abAppend(&ab,seq,strlen(seq));
     /* Move cursor to original position. */
-    snprintf(seq,64,"\r\x1b[%dC", (int)(pos+plen));
+    snprintf(seq,64,"\r\x1b[%dC", (int)(pos+strlenPerceived(l->prompt)));
     abAppend(&ab,seq,strlen(seq));
     if (write(fd,ab.b,ab.len) == -1) {} /* Can't recover from write error. */
     abFree(&ab);
@@ -708,6 +730,25 @@ static void linenoiseEditMoveRight(struct linenoiseState *l) {
         l->pos++;
         refreshLine(l);
     }
+}
+
+/* Move cursor to the end of the current word. */
+void linenoiseEditMoveWordEnd(struct linenoiseState *l) {
+    if (l->len == 0 || l->pos >= l->len) return;
+    if (l->buf[l->pos] == ' ')
+        while (l->pos < l->len && l->buf[l->pos] == ' ') ++l->pos;
+    while (l->pos < l->len && l->buf[l->pos] != ' ') ++l->pos;
+    refreshLine(l);
+}
+
+/* Move cursor to the start of the current word. */
+void linenoiseEditMoveWordStart(struct linenoiseState *l) {
+    if (l->len == 0) return;
+    if (l->buf[l->pos-1] == ' ') --l->pos;
+    if (l->buf[l->pos] == ' ')
+        while (l->pos > 0 && l->buf[l->pos] == ' ') --l->pos;
+    while (l->pos > 0 && l->buf[l->pos-1] != ' ') --l->pos;
+    refreshLine(l);
 }
 
 /* Move cursor to the start of the line. */
@@ -872,6 +913,16 @@ static void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     refreshLine(l);
 }
 
+/* Delete the next word, maintaining the cursor at the same position */
+void linenoiseEditDeleteNextWord(struct linenoiseState *l) {
+    size_t next_word_end = l->pos;
+    while (next_word_end < l->len && l->buf[next_word_end] == ' ') ++next_word_end;
+    while (next_word_end < l->len && l->buf[next_word_end] != ' ') ++next_word_end;
+    memmove(l->buf+l->pos, l->buf+next_word_end, l->len-next_word_end);
+    l->len -= next_word_end - l->pos;
+    refreshLine(l);
+}
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -979,21 +1030,62 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
         case ESC:    /* escape sequence */
-            /* Read the next two bytes representing the escape sequence.
-             * Use two calls to handle slow terminals returning the two
-             * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
-            if (read(l.ifd,seq+1,1) == -1) break;
-
-            /* ESC [ sequences. */
-            if (seq[0] == '[') {
-                if (seq[1] >= '0' && seq[1] <= '9') {
-                    /* Extended escape, read additional byte. */
-                    if (read(l.ifd,seq+2,1) == -1) break;
-                    if (seq[2] == '~') {
+            /* ESC ? sequences */
+            if (seq[0] != '[' && seq[0] != '0') {
+                switch (seq[0]) {
+                case 'f':
+                    linenoiseEditMoveWordEnd(&l);
+                    break;
+                case 'b':
+                    linenoiseEditMoveWordStart(&l);
+                    break;
+                case 'd':
+                    linenoiseEditDeleteNextWord(&l);
+                    break;
+                }
+            } else {
+                if (read(l.ifd,seq+1,1) == -1) break;
+                /* ESC [ sequences. */
+                if (seq[0] == '[') {
+                    if (seq[1] >= '0' && seq[1] <= '9') {
+                        /* Extended escape, read additional byte. */
+                        if (read(l.ifd,seq+2,1) == -1) break;
+                        if (seq[2] == '~') {
+                            switch(seq[1]) {
+                            case '3': /* Delete key. */
+                                linenoiseEditDelete(&l);
+                                break;
+                            }
+                        }
+                    } else {
                         switch(seq[1]) {
-                        case '3': /* Delete key. */
-                            linenoiseEditDelete(&l);
+                        case 'A': /* Up */
+                            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
+                            break;
+                        case 'B': /* Down */
+                            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
+                            break;
+                        case 'C': /* Right */
+                            linenoiseEditMoveRight(&l);
+                            break;
+                        case 'D': /* Left */
+                            linenoiseEditMoveLeft(&l);
+                            break;
+                        case 'H': /* Home */
+                            linenoiseEditMoveHome(&l);
+                            break;
+                        case 'F': /* End*/
+                            linenoiseEditMoveEnd(&l);
+                            break;
+                        case 'd': /* End*/
+                            linenoiseEditDeleteNextWord(&l);
+                            break;
+                        case '1': /* Home */
+                            linenoiseEditMoveHome(&l);
+                            break;
+                        case '4': /* End */
+                            linenoiseEditMoveEnd(&l);
                             break;
                         case '6': /* Page down */
                             linenoiseSearchInHistory( &l, LINENOISE_SEARCH_HISTROY_REVERSE );
@@ -1016,20 +1108,10 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                             }
                         }
                     }
-                } else {
+                }
+                /* ESC O sequences. */
+                else if (seq[0] == 'O') {
                     switch(seq[1]) {
-                    case 'A': /* Up */
-                        linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
-                        break;
-                    case 'B': /* Down */
-                        linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
-                        break;
-                    case 'C': /* Right */
-                        linenoiseEditMoveRight(&l);
-                        break;
-                    case 'D': /* Left */
-                        linenoiseEditMoveLeft(&l);
-                        break;
                     case 'H': /* Home */
                         linenoiseEditMoveHome(&l);
                         break;
@@ -1037,18 +1119,6 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                         linenoiseEditMoveEnd(&l);
                         break;
                     }
-                }
-            }
-
-            /* ESC O sequences. */
-            else if (seq[0] == 'O') {
-                switch(seq[1]) {
-                case 'H': /* Home */
-                    linenoiseEditMoveHome(&l);
-                    break;
-                case 'F': /* End*/
-                    linenoiseEditMoveEnd(&l);
-                    break;
                 }
             }
             break;
