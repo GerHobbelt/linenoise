@@ -89,7 +89,8 @@
 #include <conio.h>
 #include <windows.h>
 #include <io.h>
-#if _MSC_VER < 1900
+ // thanks @Technici4n [180385768a]
+#if defined (_MSC_VER) && _MSC_VER < 1900
 #define snprintf _snprintf  // Microsoft headers use underscores in some names
 #endif
 #define strcasecmp _stricmp
@@ -105,10 +106,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+ // thanks @theopolis commit [30d97e1d4] from [c894b9e] in linenoise:
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <cctype>
 #include <wctype.h>
+#include <poll.h>
 
 #endif /* _WIN32 */
 
@@ -123,6 +127,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <atomic>
 
 using std::string;
 using std::vector;
@@ -131,6 +136,8 @@ using std::unique_ptr;
 using namespace linenoise_ng;
 
 typedef unsigned char char8_t;
+
+static std::atomic<bool> wantsToExit(false);
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
@@ -1317,10 +1324,20 @@ static char32_t readUnicodeCharacter(void) {
     char8_t c;
 
     /* Continue reading if interrupted by signal. */
-    ssize_t nread;
+    ssize_t nread = -1;
+    bool again;
     do {
-      nread = read(0, &c, 1);
-    } while ((nread == -1) && (errno == EINTR));
+      struct pollfd fdin;
+      fdin.fd = 0;
+      fdin.events = POLLIN;
+      again = false;
+      if(poll(&fdin, 1, 500) > 0)
+	nread = read(0, &c, 1);
+      else if (wantsToExit)
+	return 0;
+      else
+	again = true;
+    } while (again || ((nread == -1) && (errno == EINTR)));
 
     if (nread <= 0) return 0;
     if (c <= 0x7F) {  // short circuit ASCII
@@ -1659,6 +1676,11 @@ static char32_t setMetaRoutine(char32_t c) {
 
 #endif  // #ifndef _WIN32
 
+
+void linenoiseWantToExit(){
+    wantsToExit = true;
+}
+
 // linenoiseReadChar -- read a keystroke or keychord from the keyboard, and
 // translate it
 // into an encoded "keystroke".  When convenient, extended keys are translated
@@ -1676,6 +1698,13 @@ static char32_t linenoiseReadChar(void) {
   int modifierKeys = 0;
   bool escSeen = false;
   while (true) {
+    DWORD rc;
+    do {
+        rc = WaitForSingleObject(console_in, 500);
+        if (wantsToExit)
+            return 0;
+    } while (rc == WAIT_TIMEOUT);
+
     ReadConsoleInputW(console_in, &rec, 1, &count);
 #if 0  // helper for debugging keystrokes, display info in the debug "Output"
        // window in the debugger
@@ -3273,11 +3302,21 @@ char* linenoiseHistoryLine(int index) {
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
 int linenoiseHistorySave(const char* filename) {
+
+#ifndef _WIN32 // port of "insecure history file creation" fix @theopolis [30d97e1d4] from [c894b9e]
+  mode_t old_umask = umask(S_IXUSR|S_IRWXG|S_IRWXO);
+#endif
+
   FILE* fp = fopen(filename, "wt");
+
   if (fp == NULL) {
     return -1;
   }
 
+#ifndef _WIN32
+  umask(old_umask);
+  chmod(filename,S_IRUSR|S_IWUSR);
+#endif
   for (int j = 0; j < historyLen; ++j) {
     if (history[j][0] != '\0') {
       fprintf(fp, "%s\n", history[j]);
@@ -3374,13 +3413,13 @@ int linenoiseInstallWindowChangeHandler(void) {
 }
 
 int linenoiseBindkeyAdd(int key, lineNoiseBindkeyFunction *fn)
-{ 
+{
   if (bindKeyFunctions.find(key) != bindKeyFunctions.end()){
     // the key is already bound
     return -1;
   }
   bindKeyFunctions.insert(std::make_pair(key, fn));
-  return 0; 
+  return 0;
 }
 
 int linenoiseBindkeyRemove(int key)
