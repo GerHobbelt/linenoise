@@ -1,4 +1,16 @@
-history
+# Files we don't need committed
+*~
+*.bak
+*.user
+linenoise_example
+*.a
+*.dSYM
+*.o
+example
+*.exe
+*.stackdump
+core
+gmon.out
 .vs
 *.filters
 *.user
