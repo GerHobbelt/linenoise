@@ -135,6 +135,7 @@ static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
+int reverse = 0;
 
 
 /* The linenoiseState structure represents the state during line editing.
@@ -713,7 +714,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
     if (l->len < l->buflen) {
         if (l->len == l->pos) {
             l->buf[l->pos] = c;
-            l->pos++;
+            if (!reverse) l->pos++;
             l->len++;
             l->buf[l->len] = '\0';
             if ((!mlmode && l->plen+l->len < l->cols && !hintsCallback)) {
@@ -728,7 +729,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
             memmove(l->buf+l->pos+1,l->buf+l->pos,l->len-l->pos);
             l->buf[l->pos] = c;
             l->len++;
-            l->pos++;
+            if (!reverse) l->pos++;
             l->buf[l->len] = '\0';
             refreshLine(l);
         }
@@ -937,6 +938,7 @@ void linenoiseSearchModeEditInsert(struct linenoiseState *l, char c) {
  * when ctrl+d is typed.
  *
  * The function returns the length of the current buffer. */
+
 static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
 {
     struct linenoiseState l;
@@ -975,6 +977,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
     while(1) {
+        /* Update the column width on each input as to maintain correct terminal width when resizing the terminal */
+        l.cols = getColumns(stdin_fd, stdout_fd);
         char c;
         int nread;
         char seq[3];
@@ -1015,7 +1019,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             return -1;
         case BACKSPACE:   /* backspace */
         case 8:     /* ctrl-h */
-            linenoiseEditBackspace(&l);
+            if (!reverse) linenoiseEditBackspace(&l);
+            else linenoiseEditDelete(&l);
             break;
         case CTRL_D:     /* ctrl-d, remove char at right of cursor, or if the
                             line is empty, act as end-of-file. */
@@ -1027,6 +1032,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 return -1;
             }
             break;
+        case CTRL_R:
+            if (reverse == 0)
+            {
+             reverse = 1;
+             break;
+            }
+            else if (reverse == 1)
+            {
+             reverse = 0;
+             break;
+            }
         case CTRL_T:    /* ctrl-t, swaps current character with previous. */
             if (l.pos > 0 && l.pos < l.len) {
                 int aux = buf[l.pos-1];
