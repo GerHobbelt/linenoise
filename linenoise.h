@@ -13,7 +13,7 @@
  *
  * <ADDED COPYRIGHT>
  *
- * Copyright (c) 2014, Richard Howe <howe.r.j.89@gmail.com>   
+ * Copyright (c) 2014, Richard Howe <howe.r.j.89@gmail.com>
  *
  * <ORIGINAL LICENSE>
  * ------------------------------------------------------------------------
@@ -22,18 +22,18 @@
  * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  *
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
  *  *  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -56,22 +56,23 @@ extern "C" {
 
 #include <stddef.h>
 
-typedef struct line_completions line_completions;
-typedef void (line_completion_callback) (const char *, line_completions *);
+	typedef struct line_completions line_completions;
+	typedef void (line_completion_callback) (const char *, line_completions *);
 
-void line_set_vi_mode(int on);
-int  line_get_vi_mode(void);
-void line_set_completion_callback(line_completion_callback *);
-void line_add_completion(line_completions *, const char *);
+	void line_set_vi_mode(int on);
+	int  line_get_vi_mode(void);
+	void line_set_completion_callback(line_completion_callback *);
+	void line_add_completion(line_completions *, const char *);
 
-char *line_editor(const char *prompt);
-int line_history_add(const char *line);
-int line_history_set_maxlen(int len);
-int line_history_save(const char *filename);
-int line_history_load(const char *filename);
-void line_clearscreen(void);
+	char *line_editor(const char *prompt);
+	int line_history_add(const char *line);
+	int line_history_set_maxlen(int len);
+	int line_history_save(const char *filename);
+	int line_history_load(const char *filename);
+	void line_clearscreen(void);
 
 #ifdef __cplusplus
 }
 #endif 
+
 #endif /* LIBLINE_H */
