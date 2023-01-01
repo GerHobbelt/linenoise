@@ -133,7 +133,7 @@ using std::vector;
 using std::unique_ptr;
 using namespace linenoise_ng;
 
-typedef unsigned char char8_t;
+// typedef unsigned char char8_t; // causes "redeclaration of C++ built-in type ‘char8_t’ [-fpermissive]""
 
 static ConversionResult copyString8to32(char32_t* dst, size_t dstSize,
                                         size_t& dstCount, const char* src) {
@@ -2592,7 +2592,7 @@ int InputBuffer::getInputLine(PromptBase& pi) {
 
     c = cleanupCtrl(c);  // convert CTRL + <char> into normal ctrl
 
-    if (c == 0) {
+      if (c == 0) {
       return len;
     }
 
@@ -2609,12 +2609,13 @@ int InputBuffer::getInputLine(PromptBase& pi) {
 
     // ctrl-I/tab, command completion, needs to be before switch statement
     if (c == ctrlChar('I') && completionCallback) {
-      if (pos == 0)  // SERVER-4967 -- in earlier versions, you could paste
-                     // previous output
-        continue;    //  back into the shell ... this output may have leading
-                     //  tabs.
-      // This hack (i.e. what the old code did) prevents command completion
-      //  on an empty line but lets users paste text with leading tabs.
+    // rpn #215 - let completion run on empty line
+    //  if (pos == 0)  // SERVER-4967 -- in earlier versions, you could paste
+    //                 // previous output
+    //    continue;    //  back into the shell ... this output may have leading
+    //                 //  tabs.
+    //  // This hack (i.e. what the old code did) prevents command completion
+    //  //  on an empty line but lets users paste text with leading tabs.
 
       killRing.lastAction = KillRing::actionOther;
       historyRecallMostRecent = false;
@@ -3386,7 +3387,7 @@ int linenoiseHistorySave(const char* filename) {
 
   for (int j = 0; j < historyLen; ++j) {
     if (history[j][0] != '\0') {
-      fprintf(fp, "%s\n", history[j]);
+      fprintf(fp, "%s\n", (char*)history[j]);
     }
   }
 
