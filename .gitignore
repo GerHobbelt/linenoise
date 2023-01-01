@@ -1,10 +1,13 @@
-history.txt
-linenoise_example
-linenoise_cpp_example
-linenoise_utf8_example
-*.o
+# Files we don't need committed
 *~
-*.dSYM
-
 *.bak
 *.user
+linenoise_example
+*.a
+*.dSYM
+*.o
+example
+*.exe
+*.stackdump
+core
+gmon.out
