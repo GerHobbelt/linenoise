@@ -83,8 +83,17 @@ add_library(
   src/wcwidth.cpp
 )
 
+add_library(
+  linenoise_shared
+  SHARED
+  src/ConvertUTF.cpp
+  src/linenoise.cpp
+  src/wcwidth.cpp
+)
+
+
 # install
-install(TARGETS linenoise DESTINATION lib)
+install(TARGETS linenoise linenoise_shared DESTINATION lib)
 
 # headers
 install(FILES include/linenoise.h DESTINATION include)
