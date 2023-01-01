@@ -1,13 +1,13 @@
-CMakeCache.txt
-CMakeFiles
-Makefile
-build
-cmake_install.cmake
-install_manifest.txt
-example
-linenoise_example
-liblinenoise.a
-*.dSYM
-history.txt
-*.o
+# Files we don't need committed
 *~
+*.bak
+*.user
+linenoise_example
+*.a
+*.dSYM
+*.o
+example
+*.exe
+*.stackdump
+core
+gmon.out
