@@ -510,8 +510,11 @@ class Utf32String {
 };
 
 class Utf8String {
-  Utf8String(const Utf8String&) = delete;
-  Utf8String& operator=(const Utf8String&) = delete;
+  /*
+   * we can live with default implementations since this is an internal class
+   */
+  //Utf8String(const Utf8String&) = delete;
+  //Utf8String& operator=(const Utf8String&) = delete;
 
  public:
   explicit Utf8String(const Utf32String& src) {
