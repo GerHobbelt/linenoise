@@ -48,6 +48,16 @@ typedef struct linenoiseCompletions {
   char **cvec;
 } linenoiseCompletions;
 
+
+typedef struct searchState {
+    int index;     /* Index of history item currently selected in search. */
+    int failed;    /* On when nothing in the history matches the search buffer. */
+    size_t len;    /* Length of the currently edited search line. */
+    size_t buflen; /* Length of the history search buffer. */
+    char *buf;     /* History search buffer. */
+} searchState;
+
+
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
