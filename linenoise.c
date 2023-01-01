@@ -132,7 +132,9 @@
 #include "linenoise.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
+#ifndef LINENOISE_MAX_LINE
 #define LINENOISE_MAX_LINE 4096
+#endif
 #define UNUSED(x) (void)(x)
 static const char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
@@ -1357,6 +1359,8 @@ void linenoisePrintKeyCodes(void) {
  * the STDIN file descriptor set in raw mode. */
 static int linenoiseRaw(char *buf, FILE *out, size_t buflen, const char *prompt) {
     int outfd, count;
+    int print_nl = 1;
+    int save_errno;
 
     if (buflen == 0) {
         errno = EINVAL;
@@ -1367,9 +1371,16 @@ static int linenoiseRaw(char *buf, FILE *out, size_t buflen, const char *prompt)
         return -1;
 
     if (enableRawMode(STDIN_FILENO) == -1) return -1;
+    save_errno = errno;
+    errno = 0;
     count = linenoiseEdit(STDIN_FILENO, outfd, buf, buflen, prompt);
+    if(errno == EAGAIN)
+        print_nl = 0;
+    else if(errno == 0)
+        errno = save_errno;
     disableRawMode(STDIN_FILENO);
-    fprintf(out, "\n");
+    if(print_nl)
+        fprintf(out, "\n");
     return count;
 }
 
