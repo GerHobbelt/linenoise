@@ -11,3 +11,9 @@ example
 *.stackdump
 core
 gmon.out
+.vs
+*.filters
+*.user
+Debug
+Release
+x64
