@@ -10,6 +10,7 @@ MongoDB, and Android.
 * About 1,100 lines of BSD license source code.
 * Only uses a subset of VT100 escapes (ANSI.SYS compatible).
 
+
 ## Can a line editing library be 20k lines of code?
 
 Line editing with some support for history is a really important feature for command line utilities. Instead of retyping almost the same stuff again and again it's just much better to hit the up arrow and edit on syntax errors, or in order to try a slightly different command. But apparently code dealing with terminals is some sort of Black Magic: readline is 30k lines of code, libedit 20k. Is it reasonable to link small utilities to huge libraries just to get a minimal support for line editing?
@@ -48,10 +49,13 @@ Please test it everywhere you can and report back!
 
 ## Let's push this forward!
 
+Please fork it and add something interesting and send me a pull request. What's especially interesting are fixes, new key bindings, completion.
+
 Patches should be provided in the respect of Linenoise sensibility for small
 easy to understand code.
 
 Send feedbacks to antirez at gmail
+
 
 # The API
 
@@ -86,6 +90,7 @@ this:
         linenoiseFree(line); /* Or just free(line) if you use libc malloc. */
     }
 
+
 ## Single line VS multi line editing
 
 By default, Linenoise uses single line editing, that is, a single row on the
@@ -99,6 +104,7 @@ In order to enable multi line editing use the following API call:
     linenoiseSetMultiLine(1);
 
 You can disable it using `0` as argument.
+
 
 ## History
 
@@ -176,6 +182,7 @@ a list of items that are good completions by using `linenoiseAddCompletion`.
 If you want to test the completion feature, compile the example program
 with `make`, run it, type `h` and press `<TAB>`.
 
+
 ## Hints
 
 Linenoise has a feature called *hints* which is very useful when you
@@ -234,6 +241,7 @@ Color codes are:
     cyan = 36
     white = 37;
 
+
 ## Screen handling
 
 Sometimes you may want to clear the screen as a result of something the
@@ -241,7 +249,9 @@ user typed. You can do this by calling the following function:
 
     void linenoiseClearScreen(void);
 
+
 ## Related projects
 
 * [Linenoise NG](https://github.com/arangodb/linenoise-ng) is a fork of Linenoise that aims to add more advanced features like UTF-8 support, Windows support and other features. Uses C++ instead of C as development language.
 * [Linenoise-swift](https://github.com/andybest/linenoise-swift) is a reimplementation of Linenoise written in Swift.
+
