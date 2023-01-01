@@ -6,7 +6,7 @@
 #define UTF8
 
 #ifdef UTF8
-#include "encodings/utf8.h"
+#include "utf8.h"
 #endif
 
 void completion(const char *buf, linenoiseCompletions *lc) {
