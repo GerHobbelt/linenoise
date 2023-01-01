@@ -1530,6 +1530,9 @@ static char32_t escFailureRoutine(char32_t) {
   beep();
   return -1;
 }
+static char32_t newmultiline(char32_t) {
+  return META + '\n';
+}
 
 // Handle ESC [ 1 ; 3 (or 5) <more stuff> escape sequences
 //
@@ -1678,7 +1681,7 @@ static CharacterDispatchRoutine escORoutines[] = {
     upArrowKeyRoutine,       downArrowKeyRoutine,     rightArrowKeyRoutine,
     leftArrowKeyRoutine,     homeKeyRoutine,          endKeyRoutine,
     ctrlUpArrowKeyRoutine,   ctrlDownArrowKeyRoutine, ctrlRightArrowKeyRoutine,
-    ctrlLeftArrowKeyRoutine, escFailureRoutine};
+    ctrlLeftArrowKeyRoutine, escFailureRoutine };
 static CharacterDispatch escODispatch = {10, "ABCDHFabcd", escORoutines};
 
 // Initial ESC dispatch -- could be a Meta prefix or the start of an escape
@@ -1696,8 +1699,8 @@ static char32_t escORoutine(char32_t c) {
 }
 static char32_t setMetaRoutine(char32_t c);  // need forward reference
 static CharacterDispatchRoutine escRoutines[] = {escLeftBracketRoutine,
-                                                 escORoutine, setMetaRoutine};
-static CharacterDispatch escDispatch = {2, "[O", escRoutines};
+                                                 escORoutine, setMetaRoutine, newmultiline};
+static CharacterDispatch escDispatch = {3, "[O\n", escRoutines};
 
 // Initial dispatch -- we are not in the middle of anything yet
 //
@@ -2565,6 +2568,9 @@ int InputBuffer::getInputLine(PromptBase& pi) {
           keyType = 1;
         } else if (c == ctrlChar('D')) {
           keyType = 2;
+        } else if (c == META + '\n') {
+          keyType = 3;
+          c = '\n';
         }
       }
 
@@ -3065,6 +3071,9 @@ int InputBuffer::getInputLine(PromptBase& pi) {
         }
         break;
 
+      case META + '\n':
+        break;
+
       // not one of our special characters, maybe insert it in the buffer
       default:
         killRing.lastAction = KillRing::actionOther;
@@ -3187,11 +3196,12 @@ void linenoisePreloadBuffer(const char* preloadText) {
  * user
  *
  * @param prompt text of prompt to display to the user
+ * @param entry_length line entry length in characters (termnial only)
  * @return       the returned string belongs to the caller on return and must be
  * freed to prevent
  *               memory leaks
  */
-char* linenoise(const char* prompt) {
+char* linenoise(const char* prompt, int* entry_length) {
 #ifndef _WIN32
   gotResize = false;
 #endif
@@ -3233,6 +3243,9 @@ char* linenoise(const char* prompt) {
         preloadedBufferContents.clear();
       }
       int count = ib.getInputLine(pi);
+      if (entry_length != NULL) {
+          *entry_length = ib.length();
+      }
       disableRawMode();
       printf("\n");
       if (count == -1) {

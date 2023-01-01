@@ -50,7 +50,7 @@ typedef void(linenoiseCompletionCallback)(const char*, linenoiseCompletions*);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback* fn);
 void linenoiseAddCompletion(linenoiseCompletions* lc, const char* str);
 
-char* linenoise(const char* prompt);
+char* linenoise(const char* prompt, int* entry_length = NULL);
 void linenoisePreloadBuffer(const char* preloadText);
 int linenoiseHistoryAdd(const char* line);
 int linenoiseHistorySetMaxLen(int len);
@@ -63,7 +63,7 @@ void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
 /* the following are extensions to the original linenoise API */
 int linenoiseInstallWindowChangeHandler(void);
-/* returns type of key pressed: 1 = CTRL-C, 2 = CTRL-D, 0 = other */ 
+/* returns type of key pressed: 1 = CTRL-C, 2 = CTRL-D, 3 = ALT-ENT, 0 = other */
 int linenoiseKeyType(void);
 
 #ifdef __cplusplus
