@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/jarvisfriends/linenoise.svg?branch=master)](https://travis-ci.org/jarvisfriends/linenoise)
+
 # Linenoise
 
 A minimal, zero-config, BSD licensed, readline replacement used in Redis,
