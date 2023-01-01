@@ -125,6 +125,7 @@ static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
+static int maskmode = 0; /* Show "***" instead of input. For passwords. */
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static int atexit_registered = 0; /* Register atexit just 1 time. */
@@ -192,10 +193,23 @@ FILE *lndebug_fp = NULL;
         fflush(lndebug_fp); \
     } while (0)
 #else
-#define lndebug(fmt, ...)
+#define lndebug(...)
 #endif
 
 /* ======================= Low level terminal handling ====================== */
+
+/* Enable "mask mode". When it is enabled, instead of the input that
+ * the user is typing, the terminal will just display a corresponding
+ * number of asterisks, like "****". This is useful for passwords and other
+ * secrets that should not be displayed. */
+void linenoiseMaskModeEnable(void) {
+    maskmode = 1;
+}
+
+/* Disable mask mode. */
+void linenoiseMaskModeDisable(void) {
+    maskmode = 0;
+}
 
 /* Set if to use or not the multi line mode. */
 void linenoiseSetMultiLine(int ml) {
@@ -430,10 +444,10 @@ void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
     size_t len = strlen(str);
     char *copy, **cvec;
 
-    copy = malloc(len+1);
+    copy = (char*)malloc(len+1);
     if (copy == NULL) return;
     memcpy(copy,str,len+1);
-    cvec = realloc(lc->cvec,sizeof(char*)*(lc->len+1));
+    cvec = (char**)realloc(lc->cvec,sizeof(char*)*(lc->len+1));
     if (cvec == NULL) {
         free(copy);
         return;
@@ -459,11 +473,11 @@ static void abInit(struct abuf *ab) {
 }
 
 static void abAppend(struct abuf *ab, const char *s, int len) {
-    char *new = realloc(ab->b,ab->len+len);
+    char *_new = (char*)realloc(ab->b,ab->len+len);
 
-    if (new == NULL) return;
-    memcpy(new+ab->len,s,len);
-    ab->b = new;
+    if (_new == NULL) return;
+    memcpy(_new+ab->len,s,len);
+    ab->b = _new;
     ab->len += len;
 }
 
@@ -473,7 +487,7 @@ static void abFree(struct abuf *ab) {
 
 /* Helper of refreshSingleLine() and refreshMultiLine() to show hints
  * to the right of the prompt. */
-void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
+static void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
     char seq[64];
     if (hintsCallback && plen+l->len < l->cols) {
         int color = -1, bold = 0;
@@ -525,7 +539,11 @@ static void refreshSingleLine(struct linenoiseState *l) {
     abAppend(&ab,seq,strlen(seq));
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    abAppend(&ab,buf,len);
+    if (maskmode == 1) {
+        while (len--) abAppend(&ab,"*",1);
+    } else {
+        abAppend(&ab,buf,len);
+    }
     /* Show hits if any. */
     refreshShowHints(&ab,l,plen);
     /* Erase to right */
@@ -579,7 +597,12 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    abAppend(&ab,l->buf,l->len);
+    if (maskmode == 1) {
+        unsigned int i;
+        for (i = 0; i < l->len; i++) abAppend(&ab,"*",1);
+    } else {
+        abAppend(&ab,l->buf,l->len);
+    }
 
     /* Show hits if any. */
     refreshShowHints(&ab,l,plen);
@@ -637,7 +660,7 @@ static void refreshLine(struct linenoiseState *l) {
 /* Insert the character 'c' at cursor current position.
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
-int linenoiseEditInsert(struct linenoiseState *l, char c) {
+static int linenoiseEditInsert(struct linenoiseState *l, char c) {
     if (l->len < l->buflen) {
         if (l->len == l->pos) {
             l->buf[l->pos] = c;
@@ -647,7 +670,8 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
             if ((!mlmode && l->plen+l->len < l->cols && !hintsCallback)) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
-                if (write(l->ofd,&c,1) == -1) return -1;
+                char d = (maskmode==1) ? '*' : c;
+                if (write(l->ofd,&d,1) == -1) return -1;
             } else {
                 refreshLine(l);
             }
@@ -664,7 +688,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
 }
 
 /* Move cursor on the left. */
-void linenoiseEditMoveLeft(struct linenoiseState *l) {
+static void linenoiseEditMoveLeft(struct linenoiseState *l) {
     if (l->pos > 0) {
         l->pos--;
         refreshLine(l);
@@ -672,7 +696,7 @@ void linenoiseEditMoveLeft(struct linenoiseState *l) {
 }
 
 /* Move cursor on the right. */
-void linenoiseEditMoveRight(struct linenoiseState *l) {
+static void linenoiseEditMoveRight(struct linenoiseState *l) {
     if (l->pos != l->len) {
         l->pos++;
         refreshLine(l);
@@ -680,7 +704,7 @@ void linenoiseEditMoveRight(struct linenoiseState *l) {
 }
 
 /* Move cursor to the start of the line. */
-void linenoiseEditMoveHome(struct linenoiseState *l) {
+static void linenoiseEditMoveHome(struct linenoiseState *l) {
     if (l->pos != 0) {
         l->pos = 0;
         refreshLine(l);
@@ -688,18 +712,40 @@ void linenoiseEditMoveHome(struct linenoiseState *l) {
 }
 
 /* Move cursor to the end of the line. */
-void linenoiseEditMoveEnd(struct linenoiseState *l) {
+static void linenoiseEditMoveEnd(struct linenoiseState *l) {
     if (l->pos != l->len) {
         l->pos = l->len;
         refreshLine(l);
     }
 }
 
+/* Move cursor to the previous word. */
+static void linenoiseEditMoveLeftWord(struct linenoiseState *l) {
+    linenoiseEditMoveLeft(l);
+    while (l->pos > 0 && !isalnum((int)l->buf[l->pos]))
+        l->pos--;
+    while (l->pos > 0 && isalnum((int)l->buf[l->pos]))
+        l->pos--;
+    if (l->pos != 0)
+        l->pos++;
+    refreshLine(l);
+}
+
+/* Move cursor to the next word. */
+static void linenoiseEditMoveRightWord(struct linenoiseState *l) {
+    linenoiseEditMoveRight(l);
+    while (l->pos != l->len && !isalnum((int)l->buf[l->pos]))
+        l->pos++;
+    while (l->pos != l->len && isalnum((int)l->buf[l->pos]))
+        l->pos++;
+    refreshLine(l);
+}
+
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
 #define LINENOISE_HISTORY_NEXT 0
 #define LINENOISE_HISTORY_PREV 1
-void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
+static void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     if (history_len > 1) {
         /* Update the current history entry before to
          * overwrite it with the next one. */
@@ -783,7 +829,7 @@ void linenoiseSearchInHistory( struct linenoiseState *l, int direction )
 
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
-void linenoiseEditDelete(struct linenoiseState *l) {
+static void linenoiseEditDelete(struct linenoiseState *l) {
     if (l->len > 0 && l->pos < l->len) {
         memmove(l->buf+l->pos,l->buf+l->pos+1,l->len-l->pos-1);
         l->len--;
@@ -793,7 +839,7 @@ void linenoiseEditDelete(struct linenoiseState *l) {
 }
 
 /* Backspace implementation. */
-void linenoiseEditBackspace(struct linenoiseState *l) {
+static void linenoiseEditBackspace(struct linenoiseState *l) {
     if (l->pos > 0 && l->len > 0) {
         memmove(l->buf+l->pos-1,l->buf+l->pos,l->len-l->pos);
         l->pos--;
@@ -805,7 +851,7 @@ void linenoiseEditBackspace(struct linenoiseState *l) {
 
 /* Delete the previosu word, maintaining the cursor at the start of the
  * current word. */
-void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
+static void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     size_t old_pos = l->pos;
     size_t diff;
 
@@ -857,7 +903,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     while(1) {
         char c;
         int nread;
-        char seq[3];
+        char seq[5];
 
         nread = read(l.ifd,&c,1);
         if (nread <= 0) return l.len;
@@ -948,6 +994,19 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                         case '5': /* Page up */
                             linenoiseSearchInHistory(&l, LINENOISE_SEARCH_HISTORY_FORWARD );
                             break;
+                        }
+                    }
+                    if (seq[1] == '1' && seq[2] == ';') {
+                        if (read(l.ifd,seq+3,2) == -1) break;
+                        if (seq[3] == '5') {
+                            switch(seq[4]) {
+                            case 'C': /* Forward Word */
+                                linenoiseEditMoveRightWord(&l);
+                                break;
+                            case 'D': /* Backward Word */
+                                linenoiseEditMoveLeftWord(&l);
+                                break;
+                            }
                         }
                     }
                 } else {
@@ -1076,7 +1135,7 @@ static char *linenoiseNoTTY(void) {
             if (maxlen == 0) maxlen = 16;
             maxlen *= 2;
             char *oldval = line;
-            line = realloc(line,maxlen);
+            line = (char*)realloc(line,maxlen);
             if (line == NULL) {
                 if (oldval) free(oldval);
                 return NULL;
@@ -1172,7 +1231,7 @@ int linenoiseHistoryAdd(const char *line) {
 
     /* Initialization on first call. */
     if (history == NULL) {
-        history = malloc(sizeof(char*)*history_max_len);
+        history = (char**)malloc(sizeof(char*)*history_max_len);
         if (history == NULL) return 0;
         memset(history,0,(sizeof(char*)*history_max_len));
     }
@@ -1199,14 +1258,14 @@ int linenoiseHistoryAdd(const char *line) {
  * just the latest 'len' elements if the new history length value is smaller
  * than the amount of items already inside the history. */
 int linenoiseHistorySetMaxLen(int len) {
-    char **new;
+    char **_new;
 
     if (len < 1) return 0;
     if (history) {
         int tocopy = history_len;
 
-        new = malloc(sizeof(char*)*len);
-        if (new == NULL) return 0;
+        _new = (char**)malloc(sizeof(char*)*len);
+        if (_new == NULL) return 0;
 
         /* If we can't copy everything, free the elements we'll not use. */
         if (len < tocopy) {
@@ -1215,10 +1274,10 @@ int linenoiseHistorySetMaxLen(int len) {
             for (j = 0; j < tocopy-len; j++) free(history[j]);
             tocopy = len;
         }
-        memset(new,0,sizeof(char*)*len);
-        memcpy(new,history+(history_len-tocopy), sizeof(char*)*tocopy);
+        memset(_new,0,sizeof(char*)*len);
+        memcpy(_new,history+(history_len-tocopy), sizeof(char*)*tocopy);
         free(history);
-        history = new;
+        history = _new;
     }
     history_max_len = len;
     if (history_len > history_max_len)
