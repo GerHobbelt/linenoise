@@ -36,7 +36,7 @@ So what usually happens is either:
  
 The result is a pollution of binaries without line editing support.
 
-So I spent more or less two hours doing a reality check resulting in this little library: is it *really* needed for a line editing library to be 20k lines of code? Apparently not, it is possibe to get a very small, zero configuration, trivial to embed library, that solves the problem. Smaller programs will just include this, supporting line editing out of the box. Larger programs may use this little library or just checking with configure if readline/libedit is available and resorting to linenoise if not.
+So I spent more or less two hours doing a reality check resulting in this little library: is it *really* needed for a line editing library to be 20k lines of code? Apparently not, it is possible to get a very small, zero configuration, trivial to embed library, that solves the problem. Smaller programs will just include this, supporting line editing out of the box. Larger programs may use this little library or just checking with configure if readline/libedit is available and resorting to Linenoise if not.
 
 ## Terminals, in 2010.
 
@@ -65,6 +65,9 @@ Please test it everywhere you can and report back!
 ## Let's push this forward!
 
 Please fork it and add something interesting and send me a pull request. What's especially interesting are fixes, new key bindings, completion.
+
+Patches should be provided in the respect of Linenoise sensibility for small
+easy to understand code.
 
 Send feedbacks to antirez at gmail
 
