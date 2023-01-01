@@ -1,14 +1,12 @@
-# Files we generate
-utf8cct.h
-
 # Files we don't need committed
 *~
+*.bak
+*.user
 linenoise_example
 *.a
 *.dSYM
 *.o
 example
-*.txt
 *.exe
 *.stackdump
 core
