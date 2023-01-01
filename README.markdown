@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/jarvisfriends/linenoise.svg?branch=master)](https://travis-ci.org/jarvisfriends/linenoise)
+
 # Linenoise
 
 A minimal, zero-config, BSD licensed, readline replacement used in Redis,
@@ -222,3 +224,8 @@ Sometimes you may want to clear the screen as a result of something the
 user typed. You can do this by calling the following function:
 
     void linenoiseClearScreen(void);
+
+## Related projects
+
+* [Linenoise NG](https://github.com/arangodb/linenoise-ng) is a fork of Linenoise that aims to add more advanced features like UTF-8 support, Windows support and other features. Uses C++ instead of C as development language.
+* [Linenoise-swift](https://github.com/andybest/linenoise-swift) is a reimplementation of Linenoise written in Swift.

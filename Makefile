@@ -5,3 +5,5 @@ linenoise_example: linenoise.c example.c encodings/utf8.c
 
 clean:
 	rm -f linenoise_example
+
+test: linenoise_example
