@@ -255,7 +255,7 @@ static int isUnsupportedTerm(void) {
 }
 
 /* Raw mode: 1960 magic shit. */
-static int enableRawMode(int fd) {
+int enableRawMode(int fd) {
     struct termios raw;
 
     if (!isatty(STDIN_FILENO)) goto fatal;
@@ -290,7 +290,7 @@ fatal:
     return -1;
 }
 
-static void disableRawMode(int fd) {
+void disableRawMode(int fd) {
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
         rawmode = 0;
@@ -299,7 +299,7 @@ static void disableRawMode(int fd) {
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor. */
-static int getCursorPosition(int ifd, int ofd) {
+int getCursorPosition(int ifd, int ofd) {
     char buf[32];
     int cols, rows;
     unsigned int i = 0;
