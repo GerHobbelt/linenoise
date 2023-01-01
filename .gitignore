@@ -1,12 +1,13 @@
-*.so
-*.a
-*.o
-line
-*.htm
-*.html
+# Files we don't need committed
+*~
+*.bak
+*.user
 linenoise_example
+*.a
 *.dSYM
-*.txt
+*.o
+example
 *.exe
-*.dll
-history.txt
+*.stackdump
+core
+gmon.out
