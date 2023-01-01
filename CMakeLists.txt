@@ -3,9 +3,6 @@ project(linenoise)
 
 include_directories(include)
 
-include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
-conan_basic_setup()
-
-add_executable(lnExample src/linenoise.c src/example.c)
-add_library(linenoise src/linenoise.c)
+add_executable(lnExample linenoise.c utf8.c example.c)
+add_library(linenoise linenoise.c utf8.c)
 
