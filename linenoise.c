@@ -129,7 +129,7 @@ FILE *lndebug_fp = NULL;
         fflush(lndebug_fp); \
     } while (0)
 #else
-#define lndebug(fmt, ...)
+#define lndebug(...)
 #endif
 
 static int  RedisWin32Write(HANDLE handle, const char* buf, size_t bytes) {
