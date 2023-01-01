@@ -1,7 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef WIN32
 #include <strings.h>
+#include <unistd.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#include <io.h>
+#include <conio.h>
+#define isatty _isatty
+#define STDIN_FILENO _fileno(stdin)
+#define STDOUT_FILENO _fileno(stdout)
+#define STDERR_FILENO _fileno(stderr)
+#define strncasecmp _strnicmp
+#define strcasecmp  _stricmp
+#endif
+
 #include "linenoise.h"
 
 #define UTF8

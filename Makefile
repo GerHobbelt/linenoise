@@ -1,42 +1,13 @@
-PREFIX = /usr/local
-LIBDIR = $(PREFIX)/lib
-INCDIR = $(PREFIX)/include
-MANDIR = $(PREFIX)/share/man
-CC = cc
-CFLAGS = -Os -Wall -Wextra
+all:  linenoise_example linenoise_utf8_example linenoise_cpp_example
 
-SRC = linenoise.c utf8.c
-OBJ = $(SRC:.c=.o)
-LIB = liblinenoise.a
-SLIB = liblinenoise.so
-INC = linenoise.h utf8.h
-MAN = linenoise.3
+linenoise_example: linenoise.h linenoise.c example.c
+	$(CC) -Wall -W -Os -g -o $@ linenoise.c example.c
 
-all: $(LIB) $(SLIB) example
+linenoise_utf8_example: linenoise.c utf8.c example.c
+	$(CC) -DNO_COMPLETION -DUSE_UTF8 -Wall -W -Os -g -o $@ linenoise.c utf8.c example.c
 
-$(LIB): $(OBJ)
-	$(AR) -rcs $@ $(OBJ)
-
-$(SLIB): $(OBJ)
-	$(CC) -shared $(OBJ) -o $@
-
-example: example.o $(LIB)
-	$(CC) -o $@ example.o $(LIB)
-
-.c.o:
-	$(CC) $(CFLAGS) -c $<
-
-install: $(LIB) $(INC) $(MAN)
-	mkdir -p $(DESTDIR)$(LIBDIR)
-	cp $(LIB) $(SLIB) $(DESTDIR)$(LIBDIR)
-	mkdir -p $(DESTDIR)$(INCDIR)
-	cp -t $(DESTDIR)$(INCDIR) $(INC)
-	mkdir -p $(DESTDIR)$(MANDIR)/man3
-	cp $(MAN) $(DESTDIR)$(MANDIR)/man3/$(MAN)
-
-lib: linenoise.h linenoise.c
-	$(CC) -Wall -W -Os -o linenoise.o linenoise.c encodings/utf8.c
-	ar rcs liblinenoise.a linenoise.o utf8.o
+linenoise_cpp_example: linenoise.h linenoise.c
+	g++ -Wall -W -Os -g -o $@ linenoise.c example.c
 
 clean:
-	rm -f $(LIB) example example.o $(OBJ)
+	rm -f linenoise_example linenoise_utf8_example linenoise_cpp_example *.o
