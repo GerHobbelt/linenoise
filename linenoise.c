@@ -158,26 +158,25 @@
 /* ctrl('A') -> 0x01 */
 #define ctrl(C) ((C) - '@')
 /* meta('a') ->  0xe1 */
-#define meta(C) ((C) | 0x80)
+#define meta(C) (-(C))
 
 /* Use -ve numbers here to co-exist with normal unicode chars */
 enum {
     SPECIAL_NONE,
     /* don't use -1 here since that indicates error */
-    SPECIAL_UP = -20,
-    SPECIAL_DOWN = -21,
-    SPECIAL_LEFT = -22,
-    SPECIAL_RIGHT = -23,
-    SPECIAL_DELETE = -24,
-    SPECIAL_HOME = -25,
-    SPECIAL_END = -26,
-    SPECIAL_INSERT = -27,
-    SPECIAL_PAGE_UP = -28,
-    SPECIAL_PAGE_DOWN = -29,
-
-    /* Some handy names for other special keycodes */
-    CHAR_ESCAPE = 27,
-    CHAR_DELETE = 127,
+    SPECIAL_UP = ctrl('P'),
+    SPECIAL_DOWN = ctrl('N'),
+    SPECIAL_LEFT = ctrl('B'),
+    SPECIAL_RIGHT = ctrl('F'),
+    SPECIAL_HOME = ctrl('A'),
+    SPECIAL_END = ctrl('E'),
+    SPECIAL_ESCAPE = 27,
+    SPECIAL_BACKSPACE = 127,
+    SPECIAL_FAILURE = -1,
+    SPECIAL_DELETE = -2,
+    SPECIAL_INSERT = -3,
+    SPECIAL_PAGE_UP = -4,
+    SPECIAL_PAGE_DOWN = -5,
 };
 
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
@@ -688,13 +687,13 @@ static int getWindowSize(struct current *current)
 }
 
 /**
- * If CHAR_ESCAPE was received, reads subsequent
+ * If SPECIAL_ESCAPE was received, reads subsequent
  * chars to determine if this is a known special key.
  *
  * Returns SPECIAL_NONE if unrecognised, or -1 if EOF.
  *
  * If no additional char is received within a short time,
- * CHAR_ESCAPE is returned.
+ * SPECIAL_ESCAPE is returned.
  */
 static int check_special(int fd)
 {
@@ -702,7 +701,7 @@ static int check_special(int fd)
     int c2;
 
     if (c < 0) {
-        return CHAR_ESCAPE;
+        return SPECIAL_ESCAPE;
     }
     else if (c >= 'a' && c <= 'z') {
         /* esc-a => meta-a */
@@ -863,7 +862,7 @@ static int completeLine(struct current *current) {
                     i = (i+1) % (lc.len+1);
                     if (i == lc.len) beep();
                     break;
-                case CHAR_ESCAPE: /* escape */
+                case SPECIAL_ESCAPE: /* escape */
                     /* Re-show original buffer */
                     if (i < lc.len) {
                         refreshLine(current);
@@ -1125,7 +1124,7 @@ static void refreshLineAlt(struct current *current, const char *prompt, const ch
         int ch;
         int n = utf8_tounicode(pt, &ch);
 
-        if (visible && ch == CHAR_ESCAPE) {
+        if (visible && ch == SPECIAL_ESCAPE) {
             /* The start of an escape sequence, so not visible */
             visible = 0;
             initParseEscapeSeq(&parser, 'm');
@@ -1541,7 +1540,7 @@ static int reverseIncrementalSearch(struct current *current)
         snprintf(rprompt, sizeof(rprompt), "(reverse-i-search)'%s': ", rbuf);
         refreshLineAlt(current, rprompt, sb_str(current->buf), current->pos);
         c = fd_read(current);
-        if (c == ctrl('H') || c == CHAR_DELETE) {
+        if (c == ctrl('H') || c == SPECIAL_BACKSPACE) {
             if (rchars) {
                 int p_ind = utf8_index(rbuf, --rchars);
                 rbuf[p_ind] = 0;
@@ -1550,18 +1549,18 @@ static int reverseIncrementalSearch(struct current *current)
             continue;
         }
 #ifdef USE_TERMIOS
-        if (c == CHAR_ESCAPE) {
+        if (c == SPECIAL_ESCAPE) {
             c = check_special(current->fd);
         }
 #endif
-        if (c == ctrl('R')) {
+        if (c == SPECIAL_UP) {
             /* Search for the previous (earlier) match */
             if (searchpos > 0) {
                 searchpos--;
             }
             skipsame = 1;
         }
-        else if (c == ctrl('S')) {
+        else if (c == SPECIAL_DOWN) {
             /* Search for the next (later) match */
             if (searchpos < history_len) {
                 searchpos++;
@@ -1569,13 +1568,13 @@ static int reverseIncrementalSearch(struct current *current)
             searchdir = 1;
             skipsame = 1;
         }
-        else if (c == ctrl('P') || c == SPECIAL_UP) {
+        else if (c == SPECIAL_UP) {
             /* Exit Ctrl-R mode and go to the previous history line from the current search pos */
             set_history_index(current, history_len - searchpos);
             c = 0;
             break;
         }
-        else if (c == ctrl('N') || c == SPECIAL_DOWN) {
+        else if (c == SPECIAL_DOWN) {
             /* Exit Ctrl-R mode and go to the next history line from the current search pos */
             set_history_index(current, history_len - searchpos - 2);
             c = 0;
@@ -1662,7 +1661,7 @@ static int linenoiseEdit(struct current *current) {
         }
 
 #ifdef USE_TERMIOS
-        if (c == CHAR_ESCAPE) {   /* escape sequence */
+        if (c == SPECIAL_ESCAPE) {   /* escape sequence */
             c = check_special(current->fd);
         }
 #endif
@@ -1698,7 +1697,7 @@ static int linenoiseEdit(struct current *current) {
             refreshLine(current);
 #endif
             continue;
-        case CHAR_DELETE:   /* backspace */
+        case SPECIAL_BACKSPACE:
         case ctrl('H'):
             if (remove_char(current, current->pos - 1) == 1) {
                 refreshLine(current);
@@ -1785,14 +1784,12 @@ static int linenoiseEdit(struct current *current) {
                 refreshLine(current);
             }
             break;
-        case ctrl('B'):
         case SPECIAL_LEFT:
             if (current->pos > 0) {
                 current->pos--;
                 refreshLine(current);
             }
             break;
-        case ctrl('F'):
         case SPECIAL_RIGHT:
             if (current->pos < sb_chars(current->buf)) {
                 current->pos++;
@@ -1800,25 +1797,21 @@ static int linenoiseEdit(struct current *current) {
             }
             break;
         case SPECIAL_PAGE_UP: /* move to start of history */
-          set_history_index(current, history_len - 1);
-          break;
+            set_history_index(current, history_len - 1);
+            break;
         case SPECIAL_PAGE_DOWN: /* move to 0 == end of history, i.e. current */
-          set_history_index(current, 0);
-          break;
-        case ctrl('P'):
+            set_history_index(current, 0);
+            break;
         case SPECIAL_UP:
             set_history_index(current, history_index + 1);
             break;
-        case ctrl('N'):
         case SPECIAL_DOWN:
             set_history_index(current, history_index - 1);
             break;
-        case ctrl('A'): /* Ctrl+a, go to the start of the line */
         case SPECIAL_HOME:
             current->pos = 0;
             refreshLine(current);
             break;
-        case ctrl('E'): /* ctrl+e, go to the end of the line */
         case SPECIAL_END:
             current->pos = sb_chars(current->buf);
             refreshLine(current);
