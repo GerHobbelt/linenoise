@@ -153,6 +153,8 @@
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 
+#define TAB_WIDTH 8
+
 /* ctrl('A') -> 0x01 */
 #define ctrl(C) ((C) - '@')
 /* meta('a') ->  0xe1 */
@@ -372,6 +374,7 @@ static void DRL_STR(const char *str)
 #endif
 
 #if defined(USE_TERMIOS)
+static void outputChars(struct current *current, const char *buf, int len);
 static void linenoiseAtExit(void);
 static struct termios orig_termios; /* in order to restore at exit */
 static int rawmode = 0; /* for atexit() function to check if restore is needed*/
@@ -430,6 +433,8 @@ fatal:
     if (tcsetattr(current->fd,TCSADRAIN,&raw) < 0) {
         goto fatal;
     }
+
+    outputChars(current, "\x1b[g", -1);
     rawmode = 1;
     return 0;
 }
@@ -1193,7 +1198,14 @@ static void refreshLineAlt(struct current *current, const char *prompt, const ch
     while (*pt) {
         int ch;
         int n = utf8_tounicode(pt, &ch);
-        int width = char_display_width(ch);
+        int width;
+
+        if(ch == '\t') {
+            width = TAB_WIDTH - (displaycol % TAB_WIDTH);
+        }
+        else {
+            width = char_display_width(ch);
+        }
 
         if (currentpos == cursor_pos) {
             /* (e') wherever we output this character is where we want the cursor */
@@ -1222,7 +1234,7 @@ static void refreshLineAlt(struct current *current, const char *prompt, const ch
 
         displaycol += width;
 
-        if (ch < ' ') {
+        if (ch != '\t' && ch < ' ') {
             outputControlChar(current, ch + '@');
         }
         else {
