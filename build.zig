@@ -22,5 +22,5 @@ pub fn build(b: *std.Build) void {
     });
     linenoise.linkLibC();
     linenoise.install();
-    linenoise.installHeadersDirectory("linenoise", "linenoise");
+    linenoise.installHeadersDirectory(".", ".");
 }
