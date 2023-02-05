@@ -6,21 +6,21 @@ pub fn build(b: *std.Build) void {
         .preferred_optimize_mode = .ReleaseSafe,
     });
 
-    const linenoize = b.addStaticLibrary(.{
-        .name = "linenoize",
+    const linenoise = b.addStaticLibrary(.{
+        .name = "linenoise",
         .target = target,
         .optimize = optimize,
     });
-    linenoize.addIncludePath(".");
-    linenoize.addCSourceFiles(&.{
-        "linenoize.c",
+    linenoise.addIncludePath(".");
+    linenoise.addCSourceFiles(&.{
+        "linenoise.c",
     }, &.{
         "-std=c11",
         "-Wall",
         "-Wextra",
         "-Wpedantic",
     });
-    linenoize.linkLibC();
-    linenoize.install();
-    linenoize.installHeadersDirectory("linenoize", "linenoize");
+    linenoise.linkLibC();
+    linenoise.install();
+    linenoise.installHeadersDirectory("linenoise", "linenoise");
 }
