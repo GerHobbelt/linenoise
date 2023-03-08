@@ -103,23 +103,74 @@
  *
  */
 
+#ifndef __riscos
 #include <termios.h>
 #include <unistd.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#ifndef __riscos
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#endif
 #include "linenoise.h"
+
+#ifdef __riscos
+#include "ro_cursors.h"
+// Terminal status - we'll use this to hold the configuration of the cursor keys.
+struct termios {
+    cursorstate_t cursorstate;
+};
+#endif
+
+#ifdef __riscos
+#include "swis.h"
+char *strdup(const char *s)
+{
+    int len = strlen(s);
+    char *p = malloc(len + 1);
+    if (p)
+        memcpy(p, s, len + 1);
+    return p;
+}
+
+int os_readc(char *p, int len)
+{
+    /* Call OS_ReadC and return the 1 byte */
+    if (_swix(OS_ReadC, _OUT(0), p))
+    {
+        *p = 0;
+        return 0;
+    }
+    /* Return number of bytes read. If they pressed escape return 0 bytes */
+    return 1;
+}
+int os_writen(const char *p, int len)
+{
+    int i;
+    _swix(OS_WriteN, _INR(0, 1), p, len);
+    return len;
+}
+#define read(fh, p, len) (os_readc)(p, len)
+#define write(fh, p, len) (os_writen)(p, len)
+
+#define STDIN_FILENO (0)
+#define STDOUT_FILENO (1)
+#define EAGAIN (7)
+#define EINVAL (9)
+#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
+#ifndef __riscos
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
+#endif
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
@@ -149,6 +200,10 @@ struct linenoiseState {
     size_t cols;        /* Number of columns in terminal. */
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
     int history_index;  /* The history index we are currently editing. */
+
+#ifdef __riscos
+    cursorstate_t cursorstate;
+#endif
 };
 
 enum KEY_ACTION{
@@ -173,6 +228,13 @@ enum KEY_ACTION{
 	BACKSPACE =  127    /* Backspace */
 };
 
+enum CURSORS {
+    CURSOR_LEFT = 136,
+    CURSOR_RIGHT = 137,
+    CURSOR_DOWN = 138,
+    CURSOR_UP = 139
+};
+
 static void linenoiseAtExit(void);
 int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
@@ -193,7 +255,11 @@ FILE *lndebug_fp = NULL;
         fflush(lndebug_fp); \
     } while (0)
 #else
-#define lndebug(fmt, ...)
+#ifdef __riscos
+    #define lndebug if (0) printf
+#else
+    #define lndebug(fmt, ...)
+#endif
 #endif
 
 /* ======================= Low level terminal handling ====================== */
@@ -219,6 +285,9 @@ void linenoiseSetMultiLine(int ml) {
 /* Return true if the terminal name is in the list of terminals we know are
  * not able to understand basic escape sequences. */
 static int isUnsupportedTerm(void) {
+#ifdef __riscos
+    return 0; /* We're built for RISC OS, so we'll understand the system */
+#else
     char *term = getenv("TERM");
     int j;
 
@@ -226,10 +295,15 @@ static int isUnsupportedTerm(void) {
     for (j = 0; unsupported_term[j]; j++)
         if (!strcasecmp(term,unsupported_term[j])) return 1;
     return 0;
+#endif
 }
 
 /* Raw mode: 1960 magic shit. */
 static int enableRawMode(int fd) {
+#ifdef __riscos
+    /* FIXME: Change the *FX4 codes, maybe configure the key output? */
+    return 0;
+#else
     struct termios raw;
 
     if (!isatty(STDIN_FILENO)) goto fatal;
@@ -262,18 +336,28 @@ static int enableRawMode(int fd) {
 fatal:
     errno = ENOTTY;
     return -1;
+#endif
 }
 
 static void disableRawMode(int fd) {
+#ifdef __riscos
+    /* FIXME: Restore back to the original cursor configuration */
+#else
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
         rawmode = 0;
+#endif
 }
 
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor. */
 static int getCursorPosition(int ifd, int ofd) {
+#ifdef __riscos
+    /* FIXME: Read the cursor position using OS_ReadVduVariables? */
+    int cols;
+    cols = 0;
+#else
     char buf[32];
     int cols, rows;
     unsigned int i = 0;
@@ -292,12 +376,16 @@ static int getCursorPosition(int ifd, int ofd) {
     /* Parse it. */
     if (buf[0] != ESC || buf[1] != '[') return -1;
     if (sscanf(buf+2,"%d;%d",&rows,&cols) != 2) return -1;
+#endif
     return cols;
 }
 
 /* Try to get the number of columns in the current terminal, or assume 80
  * if it fails. */
 static int getColumns(int ifd, int ofd) {
+#ifdef __riscos
+    /* FIXME: Read the cursor position using OS_ReadVduVariables? */
+#else
     struct winsize ws;
 
     if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
@@ -316,7 +404,12 @@ static int getColumns(int ifd, int ofd) {
         /* Restore position. */
         if (cols > start) {
             char seq[32];
+#ifdef __riscos
+            /* Cannot be larger than 32bytes, 2+9+1+1 < 32 */
+            sprintf(seq,"\x1b[%dD",cols-start);
+#else
             snprintf(seq,32,"\x1b[%dD",cols-start);
+#endif
             if (write(ofd,seq,strlen(seq)) == -1) {
                 /* Can't recover... */
             }
@@ -325,6 +418,7 @@ static int getColumns(int ifd, int ofd) {
     } else {
         return ws.ws_col;
     }
+#endif
 
 failed:
     return 80;
@@ -332,16 +426,26 @@ failed:
 
 /* Clear the screen. Used to handle ctrl+l */
 void linenoiseClearScreen(void) {
+#ifdef __riscos
+    /* FIXME: VDU 12? */
+    write(STDOUT_FILENO, "\x0c", 1);
+#else
     if (write(STDOUT_FILENO,"\x1b[H\x1b[2J",7) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
+#endif
 }
 
 /* Beep, used for completion when there is nothing to complete or when all
  * the choices were already shown. */
 static void linenoiseBeep(void) {
+#ifdef __riscos
+    /* FIXME: VDU 7? */
+    write(STDOUT_FILENO, "\x07", 1);
+#else
     fprintf(stderr, "\x7");
     fflush(stderr);
+#endif
 }
 
 /* ============================== Completion ================================ */
@@ -406,7 +510,14 @@ static int completeLine(struct linenoiseState *ls) {
                 default:
                     /* Update buffer and return */
                     if (i < lc.len) {
+#ifdef __riscos
+                        int len = strlen(lc.cvec[i]);
+                        nwritten = (len > ls->buflen - 1) ? ls->buflen - 1 : len;
+                        memcpy(ls->buf, lc.cvec[i], nwritten);
+                        ls->buf[nwritten] = '\0';
+#else
                         nwritten = snprintf(ls->buf,ls->buflen,"%s",lc.cvec[i]);
+#endif
                         ls->len = ls->pos = nwritten;
                     }
                     stop = 1;
@@ -498,13 +609,27 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
             if (hintlen > hintmaxlen) hintlen = hintmaxlen;
             if (bold == 1 && color == -1) color = 37;
             if (color != -1 || bold != 0)
+            {
+#ifdef __riscos
+                /* Cannot be more than 64 bytes: 2+9+1+9+4+1 < 64 */
+                /* FIXME: Select bold and colour in RISC OS - ColourTrans?*/
+                strcpy(seq, "");
+#else
                 snprintf(seq,64,"\033[%d;%d;49m",bold,color);
+#endif
+            }
             else
                 seq[0] = '\0';
             abAppend(ab,seq,strlen(seq));
             abAppend(ab,hint,hintlen);
             if (color != -1 || bold != 0)
+            {
+#ifdef __riscos
+                /* Restore colours */
+#else
                 abAppend(ab,"\033[0m",4);
+#endif
+            }
             /* Call the function to free the hint returned. */
             if (freeHintsCallback) freeHintsCallback(hint);
         }
@@ -535,10 +660,15 @@ static void refreshSingleLine(struct linenoiseState *l) {
 
     abInit(&ab);
     /* Cursor to left edge */
+#ifdef __riscos
+    /* Cannot be longer than 64 bytes: 1+1 < 64 */
+    sprintf(seq,"\r");
+#else
     snprintf(seq,64,"\r");
+#endif
     abAppend(&ab,seq,strlen(seq));
     /* Write the prompt and the current buffer content */
-    abAppend(&ab,l->prompt,strlen(l->prompt));
+    abAppend(&ab,l->prompt,plen);
     if (maskmode == 1) {
         while (len--) abAppend(&ab,"*",1);
     } else {
@@ -547,11 +677,33 @@ static void refreshSingleLine(struct linenoiseState *l) {
     /* Show hits if any. */
     refreshShowHints(&ab,l,plen);
     /* Erase to right */
+#ifdef __riscos
+    /* Erase to right is not implemented in Pyromaniac, so instead we'll
+     * just overwrite them all. */
+    {
+        int offset = plen + len;
+        int spaces = l->cols - (offset % l->cols) - 1;
+        int xpos;
+        for (; spaces; spaces--)
+            abAppend(&ab," ",1);
+        xpos = getCursorPosition(l->ifd, fd);
+        abAppend(&ab, "\r", 1); /* Move to start of line */
+    }
+#else
     snprintf(seq,64,"\x1b[0K");
     abAppend(&ab,seq,strlen(seq));
+#endif
     /* Move cursor to original position. */
+#ifdef __riscos
+    {
+        int i;
+        for (i=(int)(pos+plen); i; i--)
+            abAppend(&ab, "\x09", 1); /* Move right one char */
+    }
+#else
     snprintf(seq,64,"\r\x1b[%dC", (int)(pos+plen));
     abAppend(&ab,seq,strlen(seq));
+#endif
     if (write(fd,ab.b,ab.len) == -1) {} /* Can't recover from write error. */
     abFree(&ab);
 }
@@ -579,20 +731,43 @@ static void refreshMultiLine(struct linenoiseState *l) {
     abInit(&ab);
     if (old_rows-rpos > 0) {
         lndebug("go down %d", old_rows-rpos);
+#ifdef __riscos
+        /* FIXME: Not implemented */
+#else
         snprintf(seq,64,"\x1b[%dB", old_rows-rpos);
+#endif
         abAppend(&ab,seq,strlen(seq));
     }
 
     /* Now for every row clear it, go up. */
     for (j = 0; j < old_rows-1; j++) {
         lndebug("clear+up");
+#ifdef __riscos
+        /* Clear to end of line is not supported, so we're going t0
+         * do this the hard way.
+         */
+        {
+            int spaces;
+            abAppend(&ab,"\r",1);
+            for (spaces = l->cols; spaces; spaces--)
+                abAppend(&ab," ",1);
+            abAppend(&ab, "\x11\x11", 1); /* Move up a line (twice, to actually move up) */
+        }
+#else
         snprintf(seq,64,"\r\x1b[0K\x1b[1A");
         abAppend(&ab,seq,strlen(seq));
+#endif
     }
 
     /* Clean the top line. */
     lndebug("clear");
+#ifdef __riscos
+    /* Less than 64 bytes: 5+1 < 64 */
+    sprintf(seq,"\r\x1b[0K");
+    /* FIXME: Not implemented */
+#else
     snprintf(seq,64,"\r\x1b[0K");
+#endif
     abAppend(&ab,seq,strlen(seq));
 
     /* Write the prompt and the current buffer content */
@@ -615,7 +790,12 @@ static void refreshMultiLine(struct linenoiseState *l) {
     {
         lndebug("<newline>");
         abAppend(&ab,"\n",1);
+#ifdef __riscos
+        /* Less than 64 bytes: 1+1 < 64 */
+        sprintf(seq,"\r");
+#else
         snprintf(seq,64,"\r");
+#endif
         abAppend(&ab,seq,strlen(seq));
         rows++;
         if (rows > (int)l->maxrows) l->maxrows = rows;
@@ -628,7 +808,13 @@ static void refreshMultiLine(struct linenoiseState *l) {
     /* Go up till we reach the expected positon. */
     if (rows-rpos2 > 0) {
         lndebug("go-up %d", rows-rpos2);
+#ifdef __riscos
+        /* Less than 64 bytes: 1+1 < 64 */
+        /* FIXME: Not implemented */
+        sprintf(seq,"\r");
+#else
         snprintf(seq,64,"\x1b[%dA", rows-rpos2);
+#endif
         abAppend(&ab,seq,strlen(seq));
     }
 
@@ -636,9 +822,18 @@ static void refreshMultiLine(struct linenoiseState *l) {
     col = (plen+(int)l->pos) % (int)l->cols;
     lndebug("set col %d", 1+col);
     if (col)
+#ifdef __riscos
+        sprintf(seq,"\r\x1b[%dC", col);
+        /* FIXME: Not implemented */
+#else
         snprintf(seq,64,"\r\x1b[%dC", col);
+#endif
     else
+#ifdef __riscos
+        sprintf(seq,"\r");
+#else
         snprintf(seq,64,"\r");
+#endif
     abAppend(&ab,seq,strlen(seq));
 
     lndebug("\n");
@@ -809,6 +1004,11 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.maxrows = 0;
     l.history_index = 0;
 
+#ifdef __riscos
+    cursors_readstate(&l.cursorstate);
+    cursors_keys(&l.cursorstate, 1);
+#endif
+
     /* Buffer starts empty. */
     l.buf[0] = '\0';
     l.buflen--; /* Make sure there is always space for the nulterm */
@@ -889,6 +1089,21 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         case CTRL_N:    /* ctrl-n */
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
+#ifdef __riscos
+            /* FIXME: Does not use the escaping sequences yet */
+        case CURSOR_UP:
+            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
+            break;
+        case CURSOR_DOWN:
+            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
+            break;
+        case CURSOR_LEFT:
+            linenoiseEditMoveLeft(&l);
+            break;
+        case CURSOR_RIGHT:
+            linenoiseEditMoveRight(&l);
+            break;
+#else
         case ESC:    /* escape sequence */
             /* Read the next two bytes representing the escape sequence.
              * Use two calls to handle slow terminals returning the two
@@ -944,6 +1159,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 }
             }
             break;
+#endif
         default:
             if (linenoiseEditInsert(&l,c)) return -1;
             break;
@@ -972,6 +1188,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         }
     }
+#ifdef __riscos
+    cursors_restore(&l.cursorstate);
+#endif
     return l.len;
 }
 
@@ -981,10 +1200,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 void linenoisePrintKeyCodes(void) {
     char quit[4];
 
+#ifdef __riscos
+    cursorstate_t cursorstate;
+    cursors_readstate(&cursorstate);
+    cursors_keys(&cursorstate, 1);
+#endif
+
     printf("Linenoise key codes debugging mode.\n"
             "Press keys to see scan codes. Type 'quit' at any time to exit.\n");
     if (enableRawMode(STDIN_FILENO) == -1) return;
     memset(quit,' ',4);
+
     while(1) {
         char c;
         int nread;
@@ -1000,6 +1226,9 @@ void linenoisePrintKeyCodes(void) {
         printf("\r"); /* Go left edge manually, we are in raw mode. */
         fflush(stdout);
     }
+#ifdef __riscos
+    cursors_restore(&cursorstate);
+#endif
     disableRawMode(STDIN_FILENO);
 }
 
@@ -1030,17 +1259,19 @@ static char *linenoiseNoTTY(void) {
     size_t len = 0, maxlen = 0;
 
     while(1) {
+        int c;
         if (len == maxlen) {
+            char *oldval;
             if (maxlen == 0) maxlen = 16;
             maxlen *= 2;
-            char *oldval = line;
+            oldval = line;
             line = realloc(line,maxlen);
             if (line == NULL) {
                 if (oldval) free(oldval);
                 return NULL;
             }
         }
-        int c = fgetc(stdin);
+        c = fgetc(stdin);
         if (c == EOF || c == '\n') {
             if (c == EOF && len == 0) {
                 free(line);
@@ -1065,6 +1296,7 @@ char *linenoise(const char *prompt) {
     char buf[LINENOISE_MAX_LINE];
     int count;
 
+#ifndef __riscos
     if (!isatty(STDIN_FILENO)) {
         /* Not a tty: read from file / pipe. In this mode we don't want any
          * limit to the line size, so we call a function to handle that. */
@@ -1081,7 +1313,11 @@ char *linenoise(const char *prompt) {
             buf[len] = '\0';
         }
         return strdup(buf);
-    } else {
+    } else
+#else
+    /* It doesn't make sense to not have a TTY on RISC OS */
+#endif
+    {
         count = linenoiseRaw(buf,LINENOISE_MAX_LINE,prompt);
         if (count == -1) return NULL;
         return strdup(buf);
@@ -1187,14 +1423,20 @@ int linenoiseHistorySetMaxLen(int len) {
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
 int linenoiseHistorySave(const char *filename) {
+#ifndef __riscos
     mode_t old_umask = umask(S_IXUSR|S_IRWXG|S_IRWXO);
+#endif
     FILE *fp;
     int j;
 
     fp = fopen(filename,"w");
+#ifndef __riscos
     umask(old_umask);
+#endif
     if (fp == NULL) return -1;
+#ifndef __riscos
     chmod(filename,S_IRUSR|S_IWUSR);
+#endif
     for (j = 0; j < history_len; j++)
         fprintf(fp,"%s\n",history[j]);
     fclose(fp);

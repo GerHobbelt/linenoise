@@ -1,0 +1,66 @@
+/*******************************************************************
+ * File:     ro_cursors
+ * Purpose:  Manipulation of the cursor and control keys on the screen
+ * Author:   Justin Fletcher
+ * Date:     20 Jan 2004
+ ******************************************************************/
+
+#ifndef CURSORS_H
+#define CURSORS_H
+
+typedef enum {
+    cvs_unchanged,
+    cvs_visible,
+    cvs_invisible
+} cursorvisiblestate_t;
+
+typedef enum {
+    cks_unchanged,
+    cks_copy,
+    cks_character
+} cursorkeystate_t;
+
+typedef struct cursorstate_s {
+    cursorvisiblestate_t    cursorvisiblestate_old;
+    cursorvisiblestate_t    cursorvisiblestate_current;
+    cursorkeystate_t        cursorkeystate_old;
+    cursorkeystate_t        cursorkeystate_current;
+} cursorstate_t;
+
+/*************************************************** Gerph *********
+ Function:     cursors_readstate
+ Description:  Read the current state of the cursors
+ Parameters:   state -> the cursor state to read into
+ Returns:      none
+ ******************************************************************/
+void cursors_readstate(cursorstate_t *state);
+
+/*************************************************** Gerph *********
+ Function:     cursors_restore
+ Description:  Restore the state to that in the configuration
+ Parameters:   state -> the cursor state to restore to (if changed)
+ Returns:      none
+ ******************************************************************/
+void cursors_restore(cursorstate_t *state);
+
+/*************************************************** Gerph *********
+ Function:      cursors_visible
+ Description:   Turn on/off the cursor
+ Parameters:    state -> the state to update
+                on = 1 to turn on cursor, and 0 to turn off
+ Returns:       none
+ ******************************************************************/
+void cursors_visible(cursorstate_t *state, int on);
+
+
+/*************************************************** Gerph *********
+ Function:      cursors_keys
+ Description:   Codes returned by cursor keys
+ Parameters:    state -> the state to update
+                on = 1 for cursor keys inputting characters
+                     0 for cursor keys performing copy editing
+ Returns:       none
+ ******************************************************************/
+void cursors_keys(cursorstate_t *state, int on);
+
+#endif

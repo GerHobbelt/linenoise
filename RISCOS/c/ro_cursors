@@ -1,0 +1,100 @@
+/*******************************************************************
+ * File:     ro_cursors
+ * Purpose:  Manipulation of the cursor on the screen
+ * Author:   Justin Fletcher
+ * Date:     20 Jan 2004
+ ******************************************************************/
+
+#include "swis.h"
+
+#include "fortify.h"
+
+#include "ro_cursors.h"
+
+
+/*************************************************** Gerph *********
+ Function:     cursors_readstate
+ Description:  Read the current state of the cursors
+ Parameters:   state -> the cursor state to read into
+ Returns:      none
+ ******************************************************************/
+void cursors_readstate(cursorstate_t *state)
+{
+    state->cursorvisiblestate_old = cvs_visible;
+    /* FIXME: Read the old visible state */
+    state->cursorvisiblestate_current = cvs_unchanged;
+
+    state->cursorkeystate_old = cks_copy;
+    /* FIXME: Read the old cursor key state */
+    state->cursorkeystate_current = cks_unchanged;
+}
+
+
+/*************************************************** Gerph *********
+ Function:     cursors_restore
+ Description:  Restore the state to that in the configuration
+ Parameters:   state -> the cursor state to restore to (if changed)
+ Returns:      none
+ ******************************************************************/
+void cursors_restore(cursorstate_t *state)
+{
+    if (state->cursorvisiblestate_current != cvs_unchanged)
+    {
+        cursors_visible(state, state->cursorvisiblestate_old == cvs_visible);
+    }
+}
+
+
+/*************************************************** Gerph *********
+ Function:      cursors_visible
+ Description:   Turn on/off the cursor
+ Parameters:    state -> the state to update
+                on = 1 to turn on cursor, and 0 to turn off
+ Returns:       none
+ ******************************************************************/
+void cursors_visible(cursorstate_t *state, int on)
+{
+    cursorvisiblestate_t new_state = on ? cvs_visible : cvs_invisible;
+    if (state->cursorvisiblestate_current == new_state)
+        return;
+
+    /* Don't use OS_RestoreCursors/OS_RemoveCursors as those are
+       intended for internal graphics operations. */
+    if (on)
+    {
+        static const char vdu_off[] = { 23, 1, 0, 0,0,0,0,0,0,0,0 };
+        _swix(OS_WriteN, _INR(0,1), vdu_off, 10);
+    }
+    else
+    {
+        static const char vdu_on[] = { 23, 1, 1, 0,0,0,0,0,0,0,0 };
+        _swix(OS_WriteN, _INR(0,1), vdu_on, 10);
+    }
+    state->cursorvisiblestate_current = new_state;
+}
+
+
+/*************************************************** Gerph *********
+ Function:      cursors_keys
+ Description:   Codes returned by cursor keys
+ Parameters:    state -> the state to update
+                on = 1 for cursor keys inputting characters
+                     0 for cursor keys performing copy editing
+ Returns:       none
+ ******************************************************************/
+void cursors_keys(cursorstate_t *state, int on)
+{
+    cursorkeystate_t new_state = on ? cks_character : cks_copy;
+    if (state->cursorkeystate_current == new_state)
+        return;
+
+    if (on)
+    {
+        _swix(OS_Byte, _INR(0,1), 4, 1);
+    }
+    else
+    {
+        _swix(OS_Byte, _INR(0,1), 4, 0);
+    }
+    state->cursorkeystate_current = new_state;
+}

@@ -12,11 +12,17 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 }
 
 char *hints(const char *buf, int *color, int *bold) {
+    /*
+#ifdef __riscos
+    if (!strcmp(buf,"hello")) {
+#else
     if (!strcasecmp(buf,"hello")) {
+#endif
         *color = 35;
         *bold = 0;
         return " World";
     }
+    */
     return NULL;
 }
 
@@ -46,7 +52,7 @@ int main(int argc, char **argv) {
     linenoiseSetHintsCallback(hints);
 
     /* Load history from file. The history file is just a plain text file
-     * where entries are separated by newlines. */
+     * where entries are separated by newlines. */  
     linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
 
     /* Now this is the main loop of the typical linenoise-based application.
