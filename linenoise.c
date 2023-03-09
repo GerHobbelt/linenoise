@@ -339,6 +339,10 @@ void linenoiseMaskModeEnable(void) {
     linenoiseConfigSetMaskMode(&linenoiseGlobalConfig, LINENOISE_MASKMODE_ENABLED);
 }
 
+void linenoiseMaskModeChar(char c) {
+    linenoiseConfigSetMaskMode(&linenoiseGlobalConfig, (int)c);
+}
+
 /* Disable mask mode. */
 void linenoiseMaskModeDisable(void) {
     linenoiseConfigSetMaskMode(&linenoiseGlobalConfig, LINENOISE_MASKMODE_DISABLED);
@@ -758,8 +762,8 @@ static void refreshSingleLine(struct linenoiseState *l) {
     abAppend(&ab,seq,strlen(seq));
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,plen);
-    if (l->config->maskmode == 1) {
-        while (len--) abAppend(&ab,"*",1);
+    if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
+        while (len--) abAppend(&ab, (char*)&l->config->maskmode, 1);
     } else {
         abAppend(&ab,buf,len);
     }
@@ -873,9 +877,10 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
-    if (l->config->maskmode == 1) {
+    if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
         unsigned int i;
-        for (i = 0; i < l->len; i++) abAppend(&ab,"*",1);
+        for (i = 0; i < l->len; i++)
+            abAppend(&ab, (char*)&l->config->maskmode, 1);
     } else {
         abAppend(&ab,l->buf,l->len);
     }
@@ -975,7 +980,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
             if ((!l->config->mlmode && l->plen+l->len < l->cols && (!l->config->hintsCallback || l->hintsdisabled))) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
-                char d = (l->config->maskmode==1) ? '*' : c;
+                char d = (l->config->maskmode!=LINENOISE_MASKMODE_DISABLED) ? l->config->maskmode : c;
                 if (write(l->ofd,&d,1) == -1) return -1;
             } else {
                 refreshLine(l);
@@ -1130,7 +1135,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
-    linenoiseHistoryAdd("");
+    linenoiseConfigHistoryAdd(config, "");
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
     while(1) {
@@ -1466,11 +1471,13 @@ static void freeHistory(struct linenoiseConfig *config) {
     }
 }
 
+#ifndef __riscos
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void linenoiseAtExit(void) {
     disableRawMode(STDIN_FILENO);
     freeHistory(&linenoiseGlobalConfig);
 }
+#endif
 
 /* This is the API call to add a new entry in the linenoise history.
  * It uses a fixed array of char pointers that are shifted (memmoved)

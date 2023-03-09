@@ -72,8 +72,11 @@ int main(int argc, char **argv) {
             /* The "/historylen" command will change the history len. */
             int len = atoi(line+11);
             linenoiseHistorySetMaxLen(len);
-        } else if (!strncmp(line, "/mask", 5)) {
-            linenoiseMaskModeEnable();
+        } else if (!strncmp(line, "/mask", 5) && (line[5] == ' ' || line[5] == '\0')) {
+            if (line[5] == ' ')
+                linenoiseMaskModeChar(line[6]);
+            else
+                linenoiseMaskModeEnable();
         } else if (!strncmp(line, "/unmask", 7)) {
             linenoiseMaskModeDisable();
         } else if (line[0] == '/') {

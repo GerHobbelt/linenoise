@@ -82,6 +82,7 @@ void linenoiseConfigSetFreeHintsCallback(struct linenoiseConfig *config, linenoi
 void linenoiseSetMultiLine(int ml);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
+void linenoiseMaskModeChar(char c);
 
 #define LINENOISE_MASKMODE_DISABLED (-1)
 #define LINENOISE_MASKMODE_ENABLED ('*')
