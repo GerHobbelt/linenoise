@@ -186,8 +186,9 @@ struct linenoiseConfig {
     int history_len;
     char **history;
 
-    int mlmode;
-    int maskmode;
+    int mlmode;         /* Multiline input mode */
+    int maskmode;       /* Character for masking, or -1 if disabled */
+    int maxlen;         /* Line input maximum length */
 
     linenoiseCompletionCallback *completionCallback;
     linenoiseHintsCallback      *hintsCallback;
@@ -201,6 +202,8 @@ static struct linenoiseConfig default_config = {
 
     0,
     LINENOISE_MASKMODE_DISABLED,
+    LINENOISE_MAX_LINE,
+
     NULL,
     NULL,
     NULL,
@@ -212,6 +215,8 @@ static struct linenoiseConfig linenoiseGlobalConfig = {
 
     0,
     LINENOISE_MASKMODE_DISABLED,
+    LINENOISE_MAX_LINE,
+
     NULL,
     NULL,
     NULL,
@@ -271,7 +276,9 @@ enum CURSORS {
     CURSOR_UP = 139
 };
 
+#ifndef __riscos
 static void linenoiseAtExit(void);
+#endif
 int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
 static void freeHistory(struct linenoiseConfig *config);
@@ -329,6 +336,10 @@ void linenoiseConfigSetMaskMode(struct linenoiseConfig *config, int maskmode)
 {
     config->maskmode = maskmode;
 }
+void linenoiseConfigSetMaxLen(struct linenoiseConfig *config, int maxlen)
+{
+    config->maxlen = maxlen;
+}
 
 
 /* Enable "mask mode". When it is enabled, instead of the input that
@@ -351,6 +362,10 @@ void linenoiseMaskModeDisable(void) {
 /* Set if to use or not the multi line mode. */
 void linenoiseSetMultiLine(int ml) {
     linenoiseConfigSetMultiLine(&linenoiseGlobalConfig, ml);
+}
+
+void linenoiseSetMaxLen(int len) {
+    linenoiseConfigSetMaxLen(&linenoiseGlobalConfig, len);
 }
 
 
@@ -1425,13 +1440,13 @@ char *linenoise2(struct linenoiseConfig *config, const char *prompt) {
     if (!isatty(STDIN_FILENO)) {
         /* Not a tty: read from file / pipe. In this mode we don't want any
          * limit to the line size, so we call a function to handle that. */
-        return linenoiseNoTTY();
+        return linenoiseNoTTY(config->maxlen);
     } else if (isUnsupportedTerm()) {
         size_t len;
 
         printf("%s",prompt);
         fflush(stdout);
-        if (fgets(buf,LINENOISE_MAX_LINE,stdin) == NULL) return NULL;
+        if (fgets(buf, confg->maxlen, stdin) == NULL) return NULL;
         len = strlen(buf);
         while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             len--;
@@ -1443,7 +1458,7 @@ char *linenoise2(struct linenoiseConfig *config, const char *prompt) {
     /* It doesn't make sense to not have a TTY on RISC OS */
 #endif
     {
-        count = linenoiseRaw(config, buf,LINENOISE_MAX_LINE,prompt);
+        count = linenoiseRaw(config, buf, config->maxlen, prompt);
         if (count == -1) return NULL;
         return strdup(buf);
     }

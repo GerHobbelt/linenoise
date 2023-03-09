@@ -83,6 +83,7 @@ void linenoiseSetMultiLine(int ml);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
 void linenoiseMaskModeChar(char c);
+void linenoiseSetMaxLen(int len);
 
 #define LINENOISE_MASKMODE_DISABLED (-1)
 #define LINENOISE_MASKMODE_ENABLED ('*')
@@ -91,6 +92,7 @@ struct linenoiseConfig *linenoiseNewConfig(void);
 void linenoiseFreeConfig(struct linenoiseConfig *config);
 void linenoiseConfigSetMultiLine(struct linenoiseConfig *config, int ml);
 void linenoiseConfigSetMaskMode(struct linenoiseConfig *config, int maskmode);
+void linenoiseConfigSetMaxLen(struct linenoiseConfig *config, int maxlen);
 
 #ifdef __cplusplus
 }
