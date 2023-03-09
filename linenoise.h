@@ -48,6 +48,8 @@ typedef struct linenoiseCompletions {
   char **cvec;
 } linenoiseCompletions;
 
+struct linenoiseConfig;
+
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
@@ -56,17 +58,38 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *);
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
-char *linenoise(const char *prompt);
 void linenoiseFree(void *ptr);
+char *linenoise(const char *prompt);
+void linenoiseClearScreen(void);
 int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);
-void linenoiseClearScreen(void);
-void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
+
+char *linenoise2(struct linenoiseConfig *config, const char *prompt);
+int linenoiseConfigHistoryAdd(struct linenoiseConfig *config, const char *line);
+int linenoiseConfigHistorySetMaxLen(struct linenoiseConfig *config, int len);
+int linenoiseConfigHistorySave(struct linenoiseConfig *config, const char *filename);
+int linenoiseConfigHistoryLoad(struct linenoiseConfig *config, const char *filename);
+
+/* Callbacks */
+void linenoiseConfigSetCompletionCallback(struct linenoiseConfig *config, linenoiseCompletionCallback *);
+void linenoiseConfigSetHintsCallback(struct linenoiseConfig *config, linenoiseHintsCallback *);
+void linenoiseConfigSetFreeHintsCallback(struct linenoiseConfig *config, linenoiseFreeHintsCallback *);
+
+/* Configuration */
+void linenoiseSetMultiLine(int ml);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
+
+#define LINENOISE_MASKMODE_DISABLED (-1)
+#define LINENOISE_MASKMODE_ENABLED ('*')
+
+struct linenoiseConfig *linenoiseNewConfig(void);
+void linenoiseFreeConfig(struct linenoiseConfig *config);
+void linenoiseConfigSetMultiLine(struct linenoiseConfig *config, int ml);
+void linenoiseConfigSetMaskMode(struct linenoiseConfig *config, int maskmode);
 
 #ifdef __cplusplus
 }
