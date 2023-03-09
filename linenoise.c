@@ -123,10 +123,6 @@
 
 #ifdef __riscos
 #include "ro_cursors.h"
-// Terminal status - we'll use this to hold the configuration of the cursor keys.
-struct termios {
-    cursorstate_t cursorstate;
-};
 #endif
 
 #ifdef __riscos
@@ -371,12 +367,10 @@ void linenoiseSetMaxLen(int len) {
 
 /* ======================= Low level terminal handling ====================== */
 
+#ifndef __riscos
 /* Return true if the terminal name is in the list of terminals we know are
  * not able to understand basic escape sequences. */
 static int isUnsupportedTerm(void) {
-#ifdef __riscos
-    return 0; /* We're built for RISC OS, so we'll understand the system */
-#else
     char *term = getenv("TERM");
     int j;
 
@@ -384,8 +378,8 @@ static int isUnsupportedTerm(void) {
     for (j = 0; unsupported_term[j]; j++)
         if (!strcasecmp(term,unsupported_term[j])) return 1;
     return 0;
-#endif
 }
+#endif
 
 /* Raw mode: 1960 magic shit. */
 static int enableRawMode(int fd) {
@@ -751,7 +745,9 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
 static void refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
     size_t plen = strlen(l->prompt);
+#ifndef __riscos
     int fd = l->ofd;
+#endif
     char *buf = l->buf;
     size_t len = l->len;
     size_t pos = l->pos;
@@ -1386,6 +1382,7 @@ static int linenoiseRaw(struct linenoiseConfig *config, char *buf, size_t buflen
     return count;
 }
 
+#ifndef __riscos
 /* This function is called when linenoise() is called with the standard
  * input file descriptor not attached to a TTY. So for example when the
  * program using linenoise is called in pipe or with a file redirected
@@ -1423,6 +1420,7 @@ static char *linenoiseNoTTY(void) {
         }
     }
 }
+#endif
 
 /* The high level function that is the main API of the linenoise library.
  * This function checks if the terminal has basic capabilities, just checking
