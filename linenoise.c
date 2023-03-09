@@ -163,6 +163,9 @@ int os_writen(const char *p, int len)
 #define STDOUT_FILENO (1)
 #define EAGAIN (7)
 #define EINVAL (9)
+
+#define VduVariable_WindowWidth (0x100)
+#define OSByte_ReadTextOutputCursor (0xA5)
 #endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -407,7 +410,7 @@ fatal:
 
 static void disableRawMode(int fd) {
 #ifdef __riscos
-    /* FIXME: Restore back to the original cursor configuration */
+    /* Restore back to the original cursor configuration */
 #else
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
@@ -420,9 +423,11 @@ static void disableRawMode(int fd) {
  * cursor. */
 static int getCursorPosition(int ifd, int ofd) {
 #ifdef __riscos
-    /* FIXME: Read the cursor position using OS_ReadVduVariables? */
+    /* Read the cursor position using OS_ReadVduVariables? */
     int cols;
-    cols = 0;
+    _kernel_oserror *err = _swix(OS_Byte, _IN(0)|_OUT(0), OSByte_ReadTextOutputCursor, &cols);
+    if (err)
+        return -1;
 #else
     char buf[32];
     int cols, rows;
@@ -450,7 +455,18 @@ static int getCursorPosition(int ifd, int ofd) {
  * if it fails. */
 static int getColumns(int ifd, int ofd) {
 #ifdef __riscos
-    /* FIXME: Read the cursor position using OS_ReadVduVariables? */
+    /* Read the cursor position using OS_ReadVduVariables? */
+    static const int vars[] = {
+            VduVariable_WindowWidth,
+            -1
+        };
+    static const int vals[1];
+    _kernel_oserror *err;
+    err = _swix(OS_ReadVduVariables, _INR(0, 1), &vars, &vals);
+    if (err)
+        goto failed;
+
+    return vals[0];
 #else
     struct winsize ws;
 
@@ -501,7 +517,7 @@ void linenoiseClearScreen(void) {
  * the choices were already shown. */
 static void linenoiseBeep(void) {
 #ifdef __riscos
-    /* FIXME: VDU 7? */
+    /* VDU 7 to beep */
     write(STDOUT_FILENO, "\x07", 1);
 #else
     fprintf(stderr, "\x7");
@@ -756,10 +772,8 @@ static void refreshSingleLine(struct linenoiseState *l) {
     {
         int offset = plen + len;
         int spaces = l->cols - (offset % l->cols) - 1;
-        int xpos;
         for (; spaces; spaces--)
             abAppend(&ab," ",1);
-        xpos = getCursorPosition(l->ifd, fd);
         abAppend(&ab, "\r", 1); /* Move to start of line */
     }
 #else
@@ -805,7 +819,11 @@ static void refreshMultiLine(struct linenoiseState *l) {
     if (old_rows-rpos > 0) {
         lndebug("go down %d", old_rows-rpos);
 #ifdef __riscos
-        /* FIXME: Not implemented */
+        {
+            int lines;
+            for (lines = old_rows-rpos; lines; lines--)
+                abAppend(&ab,"\n",1);
+        }
 #else
         snprintf(seq,64,"\x1b[%dB", old_rows-rpos);
 #endif
@@ -824,24 +842,34 @@ static void refreshMultiLine(struct linenoiseState *l) {
             abAppend(&ab,"\r",1);
             for (spaces = l->cols; spaces; spaces--)
                 abAppend(&ab," ",1);
-            abAppend(&ab, "\x11\x11", 1); /* Move up a line (twice, to actually move up) */
+            for (spaces = l->cols; spaces; spaces--)
+                abAppend(&ab,"\x08",1);
+            abAppend(&ab, "\x0b", 1); /* Move up a line */
         }
 #else
         snprintf(seq,64,"\r\x1b[0K\x1b[1A");
         abAppend(&ab,seq,strlen(seq));
 #endif
     }
-
+/* hello there this is a test of the long lines to see what happens when you write a lot of text. */
     /* Clean the top line. */
     lndebug("clear");
 #ifdef __riscos
-    /* Less than 64 bytes: 5+1 < 64 */
-    sprintf(seq,"\r\x1b[0K");
-    /* FIXME: Not implemented */
+    /* Erase to right is not implemented in Pyromaniac, so instead we'll
+     * just overwrite them all. */
+    {
+        int spaces;
+        abAppend(&ab, "\r", 1); /* Move to start of line */
+        for (spaces = l->cols - 1; spaces; spaces--)
+            abAppend(&ab," ",1);
+        for (spaces = l->cols; spaces; spaces--)
+            abAppend(&ab,"\x08",1);
+        abAppend(&ab, "\r", 1); /* Move back to start of line */
+    }
 #else
     snprintf(seq,64,"\r\x1b[0K");
-#endif
     abAppend(&ab,seq,strlen(seq));
+#endif
 
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,strlen(l->prompt));
@@ -882,32 +910,41 @@ static void refreshMultiLine(struct linenoiseState *l) {
     if (rows-rpos2 > 0) {
         lndebug("go-up %d", rows-rpos2);
 #ifdef __riscos
-        /* Less than 64 bytes: 1+1 < 64 */
-        /* FIXME: Not implemented */
-        sprintf(seq,"\r");
+        {
+            int lines;
+            for (lines = rows-rpos2; lines; lines--)
+                abAppend(&ab,"\n",1);
+        }
 #else
         snprintf(seq,64,"\x1b[%dA", rows-rpos2);
-#endif
         abAppend(&ab,seq,strlen(seq));
+#endif
     }
 
     /* Set column. */
     col = (plen+(int)l->pos) % (int)l->cols;
     lndebug("set col %d", 1+col);
     if (col)
+    {
 #ifdef __riscos
-        sprintf(seq,"\r\x1b[%dC", col);
-        /* FIXME: Not implemented */
+        int i;
+        abAppend(&ab,"\r",1);
+        for (i=col; i; i--)
+            abAppend(&ab, "\x09", 1); /* Move right one char */
 #else
         snprintf(seq,64,"\r\x1b[%dC", col);
+        abAppend(&ab,seq,strlen(seq));
 #endif
+    }
     else
+    {
 #ifdef __riscos
         sprintf(seq,"\r");
 #else
         snprintf(seq,64,"\r");
 #endif
-    abAppend(&ab,seq,strlen(seq));
+        abAppend(&ab,seq,strlen(seq));
+    }
 
     lndebug("\n");
     l->oldpos = l->pos;
