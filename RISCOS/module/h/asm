@@ -1,0 +1,18 @@
+/*******************************************************************
+ * File:        asm.h
+ * Purpose:     Assembler veneer for the ReadLineV
+ * Author:      Gerph
+ * Date:        10 March 2023
+ ******************************************************************/
+
+#ifndef ASM_H
+#define ASM_H
+
+void ReadLineV_SpecialEntry(void);
+
+/* Return values for use in R9 on return from the veneer */
+#define ReadLineV_PassOn        (0)
+#define ReadLineV_ClaimCClear   (1)
+#define ReadLineV_ClaimCSet     (2)
+
+#endif

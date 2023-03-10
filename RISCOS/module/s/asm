@@ -1,0 +1,34 @@
+
+        AREA    |Asm$$code|, CODE, READONLY
+
+        EXPORT  ReadLineV_SpecialEntry
+        IMPORT  ReadLineV_Entry
+
+C_bit   *       29
+V_bit   *       28
+
+ReadLineV_SpecialEntry
+        STMFD   sp!, {r9, r14}
+
+        MOV     r9, #0
+        BL      ReadLineV_Entry
+
+; VS to claim and return error
+; r9 = 0 to pass on (ie ignore the call)
+;      1 to claim with C clear
+;      2 to claim wthh C set
+
+        TEQ     r9, #0
+        LDMEQFD sp!, {r9, pc}       ; pass on
+        LDMVSFD sp!, {r9, r14, pc}  ; claim and return error
+
+        TEQ     r9, #1
+        MOVEQ   r14, #0             ; C clear, V clear
+        TEQ     r9, #2
+        MOVEQ   r14, #C_bit         ; C set, V clear
+
+        MSR     CPSR_f, r14
+
+        LDMFD   sp!, {r9, r14, pc}
+
+        END

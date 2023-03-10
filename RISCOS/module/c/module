@@ -1,0 +1,178 @@
+/*******************************************************************
+ * File:        main
+ * Purpose:     LineNoise module interface
+ * Author:      Gerph
+ ******************************************************************/
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "kernel.h"
+#include "swis.h"
+#include "modhead.h"
+#include "asm.h"
+
+#include "linenoise.h"
+
+//#define DEBUG
+
+#ifdef DEBUG
+#define dprintf if (1) printf
+#else
+#define dprintf if (0) printf
+#endif
+
+#define ReadLineV   (0x0E)
+
+/***************************************************************************
+ * Function:     Mod_Init
+ * Description:  Initialise the module, setting up vectors, callbacks and
+ *               any other parts of the system necessary for the module to
+ *               function.
+ * Parameters:   tail        = pointer to command line (control terminated)
+ *               podule_base = address of podule module was started from, or
+ *                             NULL if none
+ *               pw          = private word for module
+ * On exit:      Return NULL for successful initialisation, or a pointer to
+ *               an error block if the module could not start properly.
+ **************************************************************************/
+_kernel_oserror *Mod_Init(const char *tail, int podule_base, void *pw)
+{
+    _kernel_oserror *err;
+    err = _swix(OS_Claim, _INR(0, 2), ReadLineV, ReadLineV_SpecialEntry, pw);
+    if (err)
+        return err;
+
+    printf("Module LineNoise initialised\n");
+    return NULL;
+}
+
+
+/***************************************************************************
+ * Function:     Mod_Final
+ * Description:  Finalise the module, shutting down any systems necessary,
+ *               freeing vectors and releasing workspace
+ * Parameters:   fatal       = fatality indicator; 1 if fatal, 0 if
+ *                             reinitialising
+ *               podule_base = address of podule module was started from, or
+ *                             NULL if none
+ *               pw          = private word for module
+ * On exit:      Return 0 for successful finalisation, or a pointer to an
+ *               error block if module was not shutdown properly.
+ **************************************************************************/
+_kernel_oserror *Mod_Final(int fatal, int podule_base, void *pw)
+{
+    _kernel_oserror *err;
+    printf("Module LineNoise dying\n");
+
+    err = _swix(OS_Release, _INR(0, 2), ReadLineV, ReadLineV_SpecialEntry, pw);
+    if (err)
+        return err;
+
+    return NULL;
+}
+
+struct char_range_s {
+    int low;
+    int high;
+};
+struct char_range_s char_range;
+
+
+/*************************************************** Gerph *********
+ Function:      insert_range_limit
+ Description:   Limit the character's inserted to the range requested
+ Parameters:    c = character to insert
+                buffer-> the buffer that's being populated
+                pos = the offset it will be inserted into
+ Returns:       1 to insert, 0 to reject
+ ******************************************************************/
+int insert_range_limit(char c, const char *buffer, int pos)
+{
+    if (c < char_range.low || c > char_range.high)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+/***************************************************************************
+ * Function:     ReadLineV_Handler
+ * Description:  Generic handler function
+ * Parameters:   r  = pointer to register block on entry
+ *               pw = private word for module
+ * On exit:      Update r to alter return values
+ *               Return NULL to return with V clear
+ *               Return an error pointer to set V and r0
+ **************************************************************************/
+_kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
+{
+    /*
+    In    r0 -> in 32bit: buffer for characters
+                in 26bit with r1 bit 31 clear: buffer for characters + flags
+                in 26bit with r1 bit 31 set: buffer for characters
+                Flags as r4 bits 30-31.
+          r1 = max length of line (excluding carriage return)
+               if bit 31 set, r4 contains flags
+          r2 = lowest character to put into buffer
+          r3 = highest character to put into buffer
+          r4 = b0-7   : echo character
+               b8-29  : reserved, must be 0
+               b30    : use password character in b0-7
+               b31    : don't reflect characters not entering buffer
+    Out   r1 = length of line (excluding carriage return)
+          C=0 => line terminated by return (CR or LF)
+          C=1 => line terminated by ESCAPE
+    */
+    int r4_holds_flags = r->r[1] & (1<<31);
+    int max_length = r->r[1] & ~(1<<31);
+    int low_char = r->r[2];
+    int high_char = r->r[3];
+    unsigned long flags = r4_holds_flags ? r->r[4] : r->r[0] & (3<<30);
+    int password_char = r->r[4] & 255;
+    int use_password = flags & (1<<30);
+    int no_echo = flags & (1<<31);
+
+    char *buffer = (char*)(r4_holds_flags ? r->r[0] : (r->r[0] & ((1<<27)-1)));
+    char *line;
+
+    if (max_length > (1<<26) || max_length <= 0)
+        return err_BadLineLength;
+
+    char_range.low = low_char;
+    char_range.high = high_char;
+
+    linenoiseSetMaxLen(max_length + 1);
+    linenoiseSetInsertCallback(insert_range_limit);
+    if (use_password)
+        linenoiseMaskModeChar(password_char);
+    else
+        linenoiseMaskModeDisable();
+
+    line = linenoise("");
+    if (line == NULL)
+    {
+        /* We failed. Report this as an escape. */
+        r->r[9] = ReadLineV_ClaimCSet;
+        r->r[1] = 0;
+        buffer[0] = '\x1b';
+        return NULL;
+    }
+
+    linenoiseHistoryAdd(line); /* Add to the history. */
+
+    dprintf("Buffer = %p, length = %i\n", buffer, max_length);
+    strncpy(buffer, line, max_length);
+    buffer[strlen(buffer)] = '\r';
+
+    r->r[1] = strlen(line);
+
+    dprintf("Returned '%s'\n", line);
+
+    linenoiseFree(line);
+
+    r->r[9] = ReadLineV_ClaimCClear;
+
+    return NULL;
+}
