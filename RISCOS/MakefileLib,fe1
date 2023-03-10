@@ -25,6 +25,7 @@ INCLUDES   =
 # Space separated list of defines to set, eg -DDEBUG
 CDEFINES   =
 
+# Enable Fortify?
 FORTIFY    = no
 
 # Objects to build, using the format o.<name> (will be varied for build type)

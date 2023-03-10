@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "fortify.h"
+
 #include "linenoise.h"
 
 
@@ -26,9 +29,16 @@ char *hints(const char *buf, int *color, int *bold) {
     return NULL;
 }
 
+int insert_numbers_only(char c, const char *buffer, int pos)
+{
+    return (c >= '0' && c <= '9');
+}
+
 int main(int argc, char **argv) {
     char *line;
     char *prgname = argv[0];
+
+    Fortify_EnterScope();
 
     /* Parse options, with --multiline we enable multi line editing. */
     while(argc > 1) {
@@ -52,7 +62,7 @@ int main(int argc, char **argv) {
     linenoiseSetHintsCallback(hints);
 
     /* Load history from file. The history file is just a plain text file
-     * where entries are separated by newlines. */  
+     * where entries are separated by newlines. */
     linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
 
     /* Now this is the main loop of the typical linenoise-based application.
@@ -61,7 +71,7 @@ int main(int argc, char **argv) {
      *
      * The typed string is returned as a malloc() allocated string by
      * linenoise, so the user needs to free() it. */
-    
+
     while((line = linenoise("hello> ")) != NULL) {
         /* Do something with the string. */
         if (line[0] != '\0' && line[0] != '/') {
@@ -83,10 +93,16 @@ int main(int argc, char **argv) {
                 linenoiseMaskModeEnable();
         } else if (!strncmp(line, "/unmask", 7)) {
             linenoiseMaskModeDisable();
+        } else if (!strncmp(line, "/numbers", 8)) {
+            linenoiseSetInsertCallback(insert_numbers_only);
         } else if (line[0] == '/') {
             printf("Unreconized command: %s\n", line);
         }
-        free(line);
+        linenoiseFree(line);
     }
+
+    linenoiseShutdown();
+
+    Fortify_LeaveScope();
     return 0;
 }

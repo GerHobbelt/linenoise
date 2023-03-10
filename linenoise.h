@@ -53,12 +53,15 @@ struct linenoiseConfig;
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
+typedef int(linenoiseInsertCallback)(char c, const char *buffer, int pos);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseSetHintsCallback(linenoiseHintsCallback *);
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
+void linenoiseSetInsertCallback(linenoiseInsertCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 void linenoiseFree(void *ptr);
+void linenoiseShutdown(void);
 char *linenoise(const char *prompt);
 void linenoiseClearScreen(void);
 int linenoiseHistoryAdd(const char *line);
@@ -77,6 +80,7 @@ int linenoiseConfigHistoryLoad(struct linenoiseConfig *config, const char *filen
 void linenoiseConfigSetCompletionCallback(struct linenoiseConfig *config, linenoiseCompletionCallback *);
 void linenoiseConfigSetHintsCallback(struct linenoiseConfig *config, linenoiseHintsCallback *);
 void linenoiseConfigSetFreeHintsCallback(struct linenoiseConfig *config, linenoiseFreeHintsCallback *);
+void linenoiseConfigSetInsertCallback(struct linenoiseConfig *config, linenoiseInsertCallback *fn);
 
 /* Configuration */
 void linenoiseSetMultiLine(int ml);

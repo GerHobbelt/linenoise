@@ -29,6 +29,9 @@ INCLUDES   =
 # Space separated list of defines to set, eg -DDEBUG
 CDEFINES   = 
 
+# Enable Fortify?
+FORTIFY    = no
+
 # Space separated list of libraries to link against.
 LIBS       = ${CLIB} <Lib$Dir>.LineNoise.o.libLineNoise
 

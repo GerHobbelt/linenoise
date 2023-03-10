@@ -121,6 +121,10 @@
 #endif
 #include "linenoise.h"
 
+#ifdef FORTIFY
+#include "fortify.h"
+#endif
+
 #ifdef __riscos
 #include "ro_cursors.h"
 #endif
@@ -138,12 +142,15 @@ char *strdup(const char *s)
 
 int os_readc(char *p, int len)
 {
+    unsigned long flags;
     /* Call OS_ReadC and return the 1 byte */
-    if (_swix(OS_ReadC, _OUT(0), p))
+    if (_swix(OS_ReadC, _OUT(0)|_OUT(_FLAGS), p, &flags))
     {
         *p = 0;
         return 0;
     }
+    if (flags & _C)
+        return 0; /* Escape, so return 0 bytes */
     /* Return number of bytes read. If they pressed escape return 0 bytes */
     return 1;
 }
@@ -189,6 +196,7 @@ struct linenoiseConfig {
     linenoiseCompletionCallback *completionCallback;
     linenoiseHintsCallback      *hintsCallback;
     linenoiseFreeHintsCallback  *freeHintsCallback;
+    linenoiseInsertCallback     *insertCallback;
 };
 
 static struct linenoiseConfig default_config = {
@@ -203,6 +211,7 @@ static struct linenoiseConfig default_config = {
     NULL,
     NULL,
     NULL,
+    NULL,
 };
 static struct linenoiseConfig linenoiseGlobalConfig = {
     LINENOISE_DEFAULT_HISTORY_MAX_LEN,
@@ -213,6 +222,7 @@ static struct linenoiseConfig linenoiseGlobalConfig = {
     LINENOISE_MASKMODE_DISABLED,
     LINENOISE_MAX_LINE,
 
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -648,6 +658,13 @@ void linenoiseConfigSetFreeHintsCallback(struct linenoiseConfig *config, linenoi
     config->freeHintsCallback = fn;
 }
 
+void linenoiseConfigSetInsertCallback(struct linenoiseConfig *config, linenoiseInsertCallback *fn) {
+    if (config == NULL)
+        config = &linenoiseGlobalConfig;
+
+    config->insertCallback = fn;
+}
+
 /* This function is used by the callback function registered by the user
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
@@ -983,6 +1000,11 @@ static void refreshLine(struct linenoiseState *l) {
  * On error writing to the terminal -1 is returned, otherwise 0. */
 int linenoiseEditInsert(struct linenoiseState *l, char c) {
     if (l->len < l->buflen) {
+        /* Check whether the character is acceptable to insert */
+        int acceptable = (l->config->insertCallback != NULL) ? l->config->insertCallback(c, l->buf, l->pos) : 1;
+        if (!acceptable)
+            return 0;
+
         if (l->len == l->pos) {
             l->buf[l->pos] = c;
             l->pos++;
@@ -1492,6 +1514,10 @@ static void linenoiseAtExit(void) {
 }
 #endif
 
+void linenoiseShutdown(void) {
+    freeHistory(&linenoiseGlobalConfig);
+}
+
 /* This is the API call to add a new entry in the linenoise history.
  * It uses a fixed array of char pointers that are shifted (memmoved)
  * when the history max length is reached in order to remove the older
@@ -1656,4 +1682,9 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *fn) {
  * registered with linenoiseSetHintsCallback(). */
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
     linenoiseConfigSetFreeHintsCallback(NULL, fn);
+}
+
+/* Register a function to check if a character can be inserted */
+void linenoiseSetInsertCallback(linenoiseInsertCallback *fn) {
+    linenoiseConfigSetInsertCallback(NULL, fn);
 }
