@@ -23,7 +23,7 @@ EXPORTS    = ${EXP_LIB}.${COMPONENT}.h.linenoise
 INCLUDES   =
 
 # Space separated list of defines to set, eg -DDEBUG
-CDEFINES   =
+CDEFINES   = -DNO_REWRITE_PROMPT
 
 # Enable Fortify?
 FORTIFY    = no

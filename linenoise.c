@@ -729,20 +729,34 @@ static void abAppend(struct abuf *ab, const char *s, int len) {
     ab->len += len;
 }
 
+static void abAppendChar(struct abuf *ab, char c, int len) {
+    char *new;
+    if (len == 0)
+        return;
+    new  = realloc(ab->b,ab->len+len);
+
+    if (new == NULL) return;
+    memset(new+ab->len,c,len);
+    ab->b = new;
+    ab->len += len;
+}
+
 static void abFree(struct abuf *ab) {
     free(ab->b);
 }
 
 /* Helper of refreshSingleLine() and refreshMultiLine() to show hints
  * to the right of the prompt. */
-void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
+int refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
+    int hintlen = 0;
     char seq[64];
     if (l->config->hintsCallback && !l->hintsdisabled && plen+l->len < l->cols) {
         int color = -1, bold = 0;
         char *hint = l->config->hintsCallback(l->buf,&color,&bold);
         if (hint) {
-            int hintlen = strlen(hint);
-            int hintmaxlen = l->cols-(plen+l->len);
+            int hintmaxlen;
+            hintlen = strlen(hint);
+            hintmaxlen = l->cols-(plen+l->len);
             if (hintlen > hintmaxlen) hintlen = hintmaxlen;
             if (bold == 1 && color == -1) color = 37;
             if (color != -1 || bold != 0)
@@ -772,6 +786,7 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
                 l->config->freeHintsCallback(hint);
         }
     }
+    return hintlen;
 }
 
 /* Single line low level line refresh.
@@ -788,6 +803,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     size_t len = l->len;
     size_t pos = l->pos;
     struct abuf ab;
+    int hintlen;
 
     while((plen+pos) >= l->cols) {
         buf++;
@@ -800,6 +816,9 @@ static void refreshSingleLine(struct linenoiseState *l) {
 
     abInit(&ab);
     /* Cursor to left edge */
+#ifdef NO_REWRITE_PROMPT
+    abAppendChar(&ab, '\x08', l->oldpos);
+#else
 #ifdef __riscos
     /* Cannot be longer than 64 bytes: 1+1 < 64 */
     sprintf(seq,"\r");
@@ -809,23 +828,28 @@ static void refreshSingleLine(struct linenoiseState *l) {
     abAppend(&ab,seq,strlen(seq));
     /* Write the prompt and the current buffer content */
     abAppend(&ab,l->prompt,plen);
+#endif
     if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
         while (len--) abAppend(&ab, (char*)&l->config->maskmode, 1);
     } else {
         abAppend(&ab,buf,len);
     }
     /* Show hits if any. */
-    refreshShowHints(&ab,l,plen);
+    hintlen = refreshShowHints(&ab,l,plen);
     /* Erase to right */
 #ifdef __riscos
     /* Erase to right is not implemented in Pyromaniac, so instead we'll
      * just overwrite them all. */
     {
-        int offset = plen + len;
+        int offset = plen + len + hintlen;
         int spaces = l->cols - (offset % l->cols) - 1;
-        for (; spaces; spaces--)
-            abAppend(&ab," ",1);
+        int count;
+        abAppendChar(&ab, ' ', spaces);
+#ifdef NO_REWRITE_PROMPT
+        abAppendChar(&ab, '\x08', spaces + hintlen + (l->len - l->pos));
+#else
         abAppend(&ab, "\r", 1); /* Move to start of line */
+#endif
     }
 #else
     snprintf(seq,64,"\x1b[0K");
@@ -833,17 +857,22 @@ static void refreshSingleLine(struct linenoiseState *l) {
 #endif
     /* Move cursor to original position. */
 #ifdef __riscos
+#ifdef NO_REWRITE_PROMPT
+    /* Already in the right place */
+#else
     {
         int i;
         for (i=(int)(pos+plen); i; i--)
             abAppend(&ab, "\x09", 1); /* Move right one char */
     }
+#endif
 #else
     snprintf(seq,64,"\r\x1b[%dC", (int)(pos+plen));
     abAppend(&ab,seq,strlen(seq));
 #endif
     if (write(fd,ab.b,ab.len) == -1) {} /* Can't recover from write error. */
     abFree(&ab);
+    l->oldpos = pos;
 }
 
 /* Multi line low level line refresh.
@@ -1034,6 +1063,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
                  * trivial case. */
                 char d = (l->config->maskmode!=LINENOISE_MASKMODE_DISABLED) ? l->config->maskmode : c;
                 if (write(l->ofd,&d,1) == -1) return -1;
+                l->oldpos++;
             } else {
                 refreshLine(l);
             }
