@@ -197,6 +197,7 @@ struct linenoiseConfig {
     linenoiseHintsCallback      *hintsCallback;
     linenoiseFreeHintsCallback  *freeHintsCallback;
     linenoiseInsertCallback     *insertCallback;
+    linenoiseFailCallback       *failCallback;
 };
 
 static struct linenoiseConfig default_config = {
@@ -212,6 +213,7 @@ static struct linenoiseConfig default_config = {
     NULL,
     NULL,
     NULL,
+    NULL,
 };
 static struct linenoiseConfig linenoiseGlobalConfig = {
     LINENOISE_DEFAULT_HISTORY_MAX_LEN,
@@ -222,6 +224,7 @@ static struct linenoiseConfig linenoiseGlobalConfig = {
     LINENOISE_MASKMODE_DISABLED,
     LINENOISE_MAX_LINE,
 
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -574,7 +577,10 @@ static int completeLine(struct linenoiseState *ls) {
         ls->config->completionCallback(ls->buf,&lc);
 
     if (lc.len == 0) {
-        linenoiseBeep();
+        if (ls->config->failCallback)
+            ls->config->failCallback(linenoiseFailCompletion);
+        else
+            linenoiseBeep();
     } else {
         size_t stop = 0, i = 0;
 
@@ -602,7 +608,13 @@ static int completeLine(struct linenoiseState *ls) {
             switch(c) {
                 case 9: /* tab */
                     i = (i+1) % (lc.len+1);
-                    if (i == lc.len) linenoiseBeep();
+                    if (i == lc.len)
+                    {
+                        if (ls->config->failCallback)
+                            ls->config->failCallback(linenoiseFailCompletion);
+                        else
+                            linenoiseBeep();
+                    }
                     break;
                 case 27: /* escape */
                     /* Re-show original buffer */
@@ -663,6 +675,13 @@ void linenoiseConfigSetInsertCallback(struct linenoiseConfig *config, linenoiseI
         config = &linenoiseGlobalConfig;
 
     config->insertCallback = fn;
+}
+
+void linenoiseConfigSetFailCallback(struct linenoiseConfig *config, linenoiseFailCallback *fn) {
+    if (config == NULL)
+        config = &linenoiseGlobalConfig;
+
+    config->failCallback = fn;
 }
 
 /* This function is used by the callback function registered by the user
@@ -1003,7 +1022,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
         /* Check whether the character is acceptable to insert */
         int acceptable = (l->config->insertCallback != NULL) ? l->config->insertCallback(c, l->buf, l->pos) : 1;
         if (!acceptable)
-            return 0;
+            goto failed_insertion;
 
         if (l->len == l->pos) {
             l->buf[l->pos] = c;
@@ -1028,6 +1047,14 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
         }
     }
     return 0;
+
+failed_insertion:
+    if (l->config->failCallback)
+        l->config->failCallback(linenoiseFailInsert);
+    else
+        linenoiseBeep();
+
+    return 0;
 }
 
 /* Move cursor on the left. */
@@ -1035,6 +1062,11 @@ void linenoiseEditMoveLeft(struct linenoiseState *l) {
     if (l->pos > 0) {
         l->pos--;
         refreshLine(l);
+    } else {
+        if (l->config->failCallback)
+            l->config->failCallback(linenoiseFailMove);
+        else
+            linenoiseBeep();
     }
 }
 
@@ -1043,6 +1075,11 @@ void linenoiseEditMoveRight(struct linenoiseState *l) {
     if (l->pos != l->len) {
         l->pos++;
         refreshLine(l);
+    } else {
+        if (l->config->failCallback)
+            l->config->failCallback(linenoiseFailMove);
+        else
+            linenoiseBeep();
     }
 }
 
@@ -1076,16 +1113,24 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
         l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
         if (l->history_index < 0) {
             l->history_index = 0;
-            return;
+            goto no_history;
         } else if (l->history_index >= l->config->history_len) {
             l->history_index = l->config->history_len-1;
-            return;
+            goto no_history;
+
         }
         strncpy(l->buf, l->config->history[l->config->history_len - 1 - l->history_index],l->buflen);
         l->buf[l->buflen-1] = '\0';
         l->len = l->pos = strlen(l->buf);
         refreshLine(l);
+        return;
     }
+
+no_history:
+    if (l->config->failCallback)
+        l->config->failCallback(linenoiseFailHistory);
+    else
+        linenoiseBeep();
 }
 
 /* Delete the character at the right of the cursor without altering the cursor
@@ -1096,6 +1141,11 @@ void linenoiseEditDelete(struct linenoiseState *l) {
         l->len--;
         l->buf[l->len] = '\0';
         refreshLine(l);
+    } else {
+        if (l->config->failCallback)
+            l->config->failCallback(linenoiseFailDelete);
+        else
+            linenoiseBeep();
     }
 }
 
@@ -1107,6 +1157,11 @@ void linenoiseEditBackspace(struct linenoiseState *l) {
         l->len--;
         l->buf[l->len] = '\0';
         refreshLine(l);
+    } else {
+        if (l->config->failCallback)
+            l->config->failCallback(linenoiseFailDelete);
+        else
+            linenoiseBeep();
     }
 }
 
@@ -1121,9 +1176,17 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     while (l->pos > 0 && l->buf[l->pos-1] != ' ')
         l->pos--;
     diff = old_pos - l->pos;
-    memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
-    l->len -= diff;
-    refreshLine(l);
+    if (diff)
+    {
+        memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
+        l->len -= diff;
+        refreshLine(l);
+    } else {
+        if (l->config->failCallback)
+            l->config->failCallback(linenoiseFailDelete);
+        else
+            linenoiseBeep();
+    }
 }
 
 /* This function is the core of the line editing capability of linenoise.
@@ -1687,4 +1750,9 @@ void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
 /* Register a function to check if a character can be inserted */
 void linenoiseSetInsertCallback(linenoiseInsertCallback *fn) {
     linenoiseConfigSetInsertCallback(NULL, fn);
+}
+
+/* Register a function to report that the character cannot be inserted */
+void linenoiseSetFailCallback(linenoiseFailCallback *fn) {
+    linenoiseConfigSetFailCallback(NULL, fn);
 }

@@ -48,16 +48,26 @@ typedef struct linenoiseCompletions {
   char **cvec;
 } linenoiseCompletions;
 
+typedef enum linenoiseFailType {
+  linenoiseFailCompletion,  /* A completion failed */
+  linenoiseFailInsert,      /* An insertion of a character failed (not acceptable/end of buffer) */
+  linenoiseFailDelete,      /* Deletion of a character failed (start/end of line) */
+  linenoiseFailHistory,     /* No more history to scroll through */
+  linenoiseFailMove         /* Move past start or end of line */
+} linenoiseFailType;
+
 struct linenoiseConfig;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
 typedef int(linenoiseInsertCallback)(char c, const char *buffer, int pos);
+typedef int(linenoiseFailCallback)(linenoiseFailType fail_type);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseSetHintsCallback(linenoiseHintsCallback *);
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
 void linenoiseSetInsertCallback(linenoiseInsertCallback *);
+void linenoiseSetFailCallback(linenoiseFailCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 void linenoiseFree(void *ptr);
@@ -81,6 +91,7 @@ void linenoiseConfigSetCompletionCallback(struct linenoiseConfig *config, lineno
 void linenoiseConfigSetHintsCallback(struct linenoiseConfig *config, linenoiseHintsCallback *);
 void linenoiseConfigSetFreeHintsCallback(struct linenoiseConfig *config, linenoiseFreeHintsCallback *);
 void linenoiseConfigSetInsertCallback(struct linenoiseConfig *config, linenoiseInsertCallback *fn);
+void linenoiseConfigSetFailCallback(struct linenoiseConfig *config, linenoiseFailCallback *);
 
 /* Configuration */
 void linenoiseSetMultiLine(int ml);
