@@ -454,9 +454,9 @@ static int getCursorPosition(int ifd, int ofd) {
 #ifdef __riscos
     /* Read the cursor position using OS_ReadVduVariables? */
     int cols;
-    _kernel_oserror *err = _swix(OS_Byte, _IN(0)|_OUT(0), OSByte_ReadTextOutputCursor, &cols);
+    _kernel_oserror *err = _swix(OS_Byte, _IN(0)|_OUT(1), OSByte_ReadTextOutputCursor, &cols);
     if (err)
-        return -1;
+        goto failed;
 #else
     char buf[32];
     int cols, rows;
@@ -499,7 +499,7 @@ static int getColumns(int ifd, int ofd) {
     if (err)
         goto failed;
 
-    return vals[0];
+    return vals[0] + 1;
 #else
     struct winsize ws;
 
@@ -802,7 +802,7 @@ int refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
  * cursor position, and number of columns of the terminal. */
 static void refreshSingleLine(struct linenoiseState *l) {
     char seq[64];
-    size_t plen = strlen(l->prompt);
+    size_t plen = l->plen;
 #ifndef __riscos
     int fd = l->ofd;
 #endif
@@ -829,12 +829,22 @@ static void refreshSingleLine(struct linenoiseState *l) {
 #ifdef __riscos
     /* Cannot be longer than 64 bytes: 1+1 < 64 */
     sprintf(seq,"\r");
+    if (l->prompt) {
+        abAppend(&ab,l->prompt,plen);
+    } else {
+        abAppendChar(&ab, 9, plen);
+    }
 #else
     snprintf(seq,64,"\r");
-#endif
     abAppend(&ab,seq,strlen(seq));
-    /* Write the prompt and the current buffer content */
-    abAppend(&ab,l->prompt,plen);
+    /* Write the prompt if we have one and the current buffer content */
+    if (l->prompt) {
+        abAppend(&ab,l->prompt,plen);
+    } else {
+        snprintf(seq,64,"\x1b[%dC", (int)plen);
+        abAppend(&ab,seq,strlen(seq));
+    }
+#endif
 #endif
     if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
         while (len--) abAppend(&ab, (char*)&l->config->maskmode, 1);
@@ -849,11 +859,11 @@ static void refreshSingleLine(struct linenoiseState *l) {
      * just overwrite them all. */
     {
         int offset = plen + len + hintlen;
-        int spaces = l->cols - (offset % l->cols) - 1;
+        int spaces = (l->cols - 1) - offset;
         int count;
         abAppendChar(&ab, ' ', spaces);
 #ifdef NO_REWRITE_PROMPT
-        abAppendChar(&ab, '\x08', spaces + hintlen + (l->len - l->pos));
+        abAppendChar(&ab, '\x08', (l->cols - 1) - (pos + plen));
 #else
         abAppend(&ab, "\r", 1); /* Move to start of line */
 #endif
@@ -888,7 +898,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
  * cursor position, and number of columns of the terminal. */
 static void refreshMultiLine(struct linenoiseState *l) {
     char seq[64];
-    int plen = strlen(l->prompt);
+    int plen = l->plen;
     int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
     int rpos = (plen+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
     int rpos2; /* rpos after refresh. */
@@ -958,8 +968,26 @@ static void refreshMultiLine(struct linenoiseState *l) {
     abAppend(&ab,seq,strlen(seq));
 #endif
 
-    /* Write the prompt and the current buffer content */
-    abAppend(&ab,l->prompt,strlen(l->prompt));
+#ifdef __riscos
+    /* Cannot be longer than 64 bytes: 1+1 < 64 */
+    sprintf(seq,"\r");
+    if (l->prompt) {
+        abAppend(&ab,l->prompt, l->plen);
+    } else {
+        abAppendChar(&ab, 9, l->plen);
+    }
+#else
+    snprintf(seq,64,"\r");
+    abAppend(&ab,seq,strlen(seq));
+    /* Write the prompt if we have one and the current buffer content */
+    if (l->prompt) {
+        abAppend(&ab,l->prompt, l->plen);
+    } else {
+        snprintf(seq,64,"\x1b[%dC", (int)l->plen);
+        abAppend(&ab,seq,strlen(seq));
+    }
+#endif
+
     if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
         unsigned int i;
         for (i = 0; i < l->len; i++)
@@ -1248,7 +1276,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
     l.buf = buf;
     l.buflen = buflen;
     l.prompt = prompt;
-    l.plen = strlen(prompt);
+    l.plen = prompt != NULL ? strlen(prompt) : getCursorPosition(stdin_fd, stdout_fd);
     l.oldpos = l.pos = 0;
     l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
@@ -1270,7 +1298,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
      * initially is just an empty string. */
     linenoiseConfigHistoryAdd(config, "");
 
-    if (write(l.ofd,prompt,l.plen) == -1) {
+    if (prompt && write(l.ofd,prompt,l.plen) == -1) {
         errno = LINENOISE_ERRNO_FAILWRITE;
         return -1;
     }
@@ -1580,7 +1608,8 @@ char *linenoise2(struct linenoiseConfig *config, const char *prompt) {
     } else if (isUnsupportedTerm()) {
         size_t len;
 
-        printf("%s",prompt);
+        if (prompt)
+            printf("%s",prompt);
         fflush(stdout);
         if (fgets(buf, confg->maxlen, stdin) == NULL) return NULL;
         len = strlen(buf);

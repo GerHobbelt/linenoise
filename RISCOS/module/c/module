@@ -165,7 +165,7 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
         linenoiseMaskModeDisable();
 
     errno = 0;
-    line = linenoise("");
+    line = linenoise(NULL); /* NULL prompt means use the current position */
     if (line == NULL)
     {
         /* We failed. Report this as an escape. */
