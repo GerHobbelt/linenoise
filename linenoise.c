@@ -147,10 +147,15 @@ int os_readc(char *p, int len)
     if (_swix(OS_ReadC, _OUT(0)|_OUT(_FLAGS), p, &flags))
     {
         *p = 0;
-        return 0;
+        errno = LINENOISE_ERRNO_FAILREAD;
+        return -1; /* Error, so return as such */
     }
     if (flags & _C)
-        return 0; /* Escape, so return 0 bytes */
+    {
+        *p = 0;
+        errno = LINENOISE_ERRNO_CTRLC;
+        return -1; /* Escape, so return an error */
+    }
     /* Return number of bytes read. If they pressed escape return 0 bytes */
     return 1;
 }
@@ -164,8 +169,6 @@ int os_writen(const char *p, int len)
 
 #define STDIN_FILENO (0)
 #define STDOUT_FILENO (1)
-#define EAGAIN (7)
-#define EINVAL (9)
 
 #define VduVariable_WindowWidth (0x100)
 #define OSByte_ReadTextOutputCursor (0xA5)
@@ -429,7 +432,7 @@ static int enableRawMode(int fd) {
     return 0;
 
 fatal:
-    errno = ENOTTY;
+    errno = LINENOISE_ERRNO_FAILWRITE;
     return -1;
 #endif
 }
@@ -460,7 +463,7 @@ static int getCursorPosition(int ifd, int ofd) {
     unsigned int i = 0;
 
     /* Report cursor location */
-    if (write(ofd, "\x1b[6n", 4) != 4) return -1;
+    if (write(ofd, "\x1b[6n", 4) != 4) goto failed;
 
     /* Read the response: ESC [ rows ; cols R */
     while (i < sizeof(buf)-1) {
@@ -471,10 +474,14 @@ static int getCursorPosition(int ifd, int ofd) {
     buf[i] = '\0';
 
     /* Parse it. */
-    if (buf[0] != ESC || buf[1] != '[') return -1;
-    if (sscanf(buf+2,"%d;%d",&rows,&cols) != 2) return -1;
+    if (buf[0] != ESC || buf[1] != '[') goto failed;
+    if (sscanf(buf+2,"%d;%d",&rows,&cols) != 2) goto failed;
 #endif
     return cols;
+
+failed:
+    errno = LINENOISE_ERRNO_FAILWRITE;
+    return -1;
 }
 
 /* Try to get the number of columns in the current terminal, or assume 80
@@ -1263,14 +1270,23 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
      * initially is just an empty string. */
     linenoiseConfigHistoryAdd(config, "");
 
-    if (write(l.ofd,prompt,l.plen) == -1) return -1;
+    if (write(l.ofd,prompt,l.plen) == -1) {
+        errno = LINENOISE_ERRNO_FAILWRITE;
+        return -1;
+    }
     while(1) {
         char c;
         int nread;
         char seq[3];
 
         nread = read(l.ifd,&c,1);
-        if (nread <= 0) return l.len;
+        if (nread <= 0) {
+            if (nread == 0)
+            {
+                return l.len;
+            }
+            return -1;
+        }
 
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
@@ -1297,7 +1313,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             }
             return (int)l.len;
         case CTRL_C:     /* ctrl-c */
-            errno = EAGAIN;
+            errno = LINENOISE_ERRNO_CTRLC;
             return -1;
         case BACKSPACE:   /* backspace */
         case 8:     /* ctrl-h */
@@ -1310,6 +1326,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             } else {
                 l.config->history_len--;
                 free(l.config->history[l.config->history_len]);
+                errno = LINENOISE_ERRNO_CTRLD;
                 return -1;
             }
             break;
@@ -1406,7 +1423,10 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             break;
 #endif
         default:
-            if (linenoiseEditInsert(&l,c)) return -1;
+            if (linenoiseEditInsert(&l,c)) {
+                errno = LINENOISE_ERRNO_FAILWRITE;
+                return -1;
+            }
             break;
         case CTRL_U: /* Ctrl+u, delete the whole line. */
             buf[0] = '\0';
@@ -1483,14 +1503,17 @@ static int linenoiseRaw(struct linenoiseConfig *config, char *buf, size_t buflen
     int count;
 
     if (buflen == 0) {
-        errno = EINVAL;
+        errno = LINENOISE_ERRNO_BADARGS;
         return -1;
     }
 
     if (config == NULL)
         config = &linenoiseGlobalConfig;
 
-    if (enableRawMode(STDIN_FILENO) == -1) return -1;
+    if (enableRawMode(STDIN_FILENO) == -1) {
+        errno = LINENOISE_ERRNO_FAILWRITE;
+        return -1;
+    }
     count = linenoiseEdit(config, STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
     disableRawMode(STDIN_FILENO);
     printf("\n");

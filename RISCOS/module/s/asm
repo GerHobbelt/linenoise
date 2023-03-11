@@ -4,8 +4,8 @@
         EXPORT  ReadLineV_SpecialEntry
         IMPORT  ReadLineV_Entry
 
-C_bit   *       29
-V_bit   *       28
+C_bit   *       (1<<29)
+V_bit   *       (1<<28)
 
 ReadLineV_SpecialEntry
         STMFD   sp!, {r9, r14}

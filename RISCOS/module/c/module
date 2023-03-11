@@ -4,6 +4,7 @@
  * Author:      Gerph
  ******************************************************************/
 
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +24,7 @@
 #define dprintf if (0) printf
 #endif
 
+#define OSByte_SetEscape (0x7D)
 #define ReadLineV   (0x0E)
 
 /***************************************************************************
@@ -71,6 +73,18 @@ _kernel_oserror *Mod_Final(int fatal, int podule_base, void *pw)
         return err;
 
     return NULL;
+}
+
+
+/*************************************************** Gerph *********
+ Function:      escape_set
+ Description:   Set the escape flag for the caller
+ Parameters:    none
+ Returns:       none
+ ******************************************************************/
+void escape_set(void)
+{
+    _swix(OS_Byte, _IN(0), OSByte_SetEscape);
 }
 
 struct char_range_s {
@@ -150,10 +164,12 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
     else
         linenoiseMaskModeDisable();
 
+    errno = 0;
     line = linenoise("");
     if (line == NULL)
     {
         /* We failed. Report this as an escape. */
+        escape_set();
         r->r[9] = ReadLineV_ClaimCSet;
         r->r[1] = 0;
         buffer[0] = '\x1b';

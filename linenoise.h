@@ -43,6 +43,22 @@
 extern "C" {
 #endif
 
+#include <errno.h>
+#ifdef __riscos
+#define LINENOISE_ERRNO_CTRLC       4
+#define LINENOISE_ERRNO_CTRLD       35
+#define LINENOISE_ERRNO_FAILWRITE   5
+#define LINENOISE_ERRNO_FAILREAD    6
+#define LINENOISE_ERRNO_BADARGS     22
+#else
+#define LINENOISE_ERRNO_CTRLC       EINTR
+#define LINENOISE_ERRNO_CTRLD       EAGAIN
+#define LINENOISE_ERRNO_FAILWRITE   EIO
+#define LINENOISE_ERRNO_FAILREAD    ENXIO
+#define LINENOISE_ERRNO_BADARGS     EINVAL
+#endif
+
+
 typedef struct linenoiseCompletions {
   size_t len;
   char **cvec;
