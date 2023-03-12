@@ -205,8 +205,15 @@ generic-veneers: ReadLineV_Entry/ReadLineV_Handler
 ;   no-handler:
 ;     The command has no handler function present. This is useful for
 ;     creating help-only commands.
-;command-keyword-table: Mod_Command
-;   ModuleCommand()
+command-keyword-table: Mod_Command
+   LoadHistory(min-args: 1, max-args: 1, handler: Cmd_LoadHistory,
+               help-text: "*LoadHistory loads a saved history file."),
+   SaveHistory(min-args: 1, max-args: 1, handler: Cmd_SaveHistory,
+               help-text: "*SaveHistory saves the current history into a file."),
+   Recall(min-args: 0, max-args: 0, handler: Cmd_Recall,
+          help-text: "*Recall displays the current contents of the history buffer."),
+   EraseHistory(min-args: 0, max-args: 0, handler: Cmd_EraseHistory,
+                help-text: "*EraseHistory erases the contents of the history buffer.")
 
 ; The module service entry will be called to process services. You are
 ; strongly recommended to include the numbers of the services you wish to

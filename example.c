@@ -6,6 +6,13 @@
 
 #include "linenoise.h"
 
+#ifdef __riscos
+#define EXTSEP "/"
+#else
+#define EXTSEP "."
+#endif
+
+#define HISTORY_FILENAME "history" EXTSEP "txt"
 
 void completion(const char *buf, linenoiseCompletions *lc) {
     if (buf[0] == 'h') {
@@ -63,7 +70,7 @@ int main(int argc, char **argv) {
 
     /* Load history from file. The history file is just a plain text file
      * where entries are separated by newlines. */
-    linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
+    linenoiseHistoryLoad(HISTORY_FILENAME); /* Load the history at startup */
 
     /* Now this is the main loop of the typical linenoise-based application.
      * The call to linenoise() will block as long as the user types something
@@ -77,7 +84,7 @@ int main(int argc, char **argv) {
         if (line[0] != '\0' && line[0] != '/') {
             printf("echo: '%s'\n", line);
             linenoiseHistoryAdd(line); /* Add to the history. */
-            linenoiseHistorySave("history.txt"); /* Save the history on disk. */
+            linenoiseHistorySave(HISTORY_FILENAME); /* Save the history on disk. */
         } else if (!strncmp(line,"/historylen",11)) {
             /* The "/historylen" command will change the history len. */
             int len = atoi(line+11);
@@ -95,6 +102,18 @@ int main(int argc, char **argv) {
             linenoiseMaskModeDisable();
         } else if (!strncmp(line, "/numbers", 8)) {
             linenoiseSetInsertCallback(insert_numbers_only);
+        } else if (!strncmp(line, "/history", 8)) {
+            /* List the history */
+            int index;
+            for (index=0; ;index ++)
+            {
+                const char *line = linenoiseHistoryGetLine(index);
+                if (!line)
+                    break;
+                printf("History#%i: %s\n", index, line);
+            }
+        } else if (!strncmp(line, "/clear", 6)) {
+            linenoiseHistoryClear();
         } else if (line[0] == '/') {
             printf("Unreconized command: %s\n", line);
         }

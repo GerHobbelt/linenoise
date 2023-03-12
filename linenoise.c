@@ -292,7 +292,6 @@ enum CURSORS {
 #ifndef __riscos
 static void linenoiseAtExit(void);
 #endif
-int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
 static void freeHistory(struct linenoiseConfig *config);
 
@@ -1651,6 +1650,8 @@ static void freeHistory(struct linenoiseConfig *config) {
         for (j = 0; j < config->history_len; j++)
             free(config->history[j]);
         free(config->history);
+        config->history = NULL;
+        config->history_len = 0;
     }
 }
 
@@ -1789,6 +1790,36 @@ int linenoiseConfigHistoryLoad(struct linenoiseConfig *config, const char *filen
     return 0;
 }
 
+/* Clear the history */
+void linenoiseConfigHistoryClear(struct linenoiseConfig *config)
+{
+    if (config == NULL)
+        config = &linenoiseGlobalConfig;
+
+    freeHistory(config);
+}
+
+/* Return a line from the history.
+ * +ve numbers are index of the line from the start.
+ * -ve numbers are index of the line from the end.
+ */
+const char *linenoiseConfigHistoryGetLine(struct linenoiseConfig *config, int index)
+{
+    if (config == NULL)
+        config = &linenoiseGlobalConfig;
+
+    if (config->history == NULL)
+        return NULL;
+
+    if (index < 0)
+        index = config->history_len + index;
+
+    if (index < 0 || index >= config->history_len)
+        return NULL;
+
+    return config->history[index];
+}
+
 /* ======================= Compatibility ====================== */
 
 char *linenoise(const char *prompt)
@@ -1814,6 +1845,16 @@ int linenoiseHistorySave(const char *filename)
 int linenoiseHistoryLoad(const char *filename)
 {
     return linenoiseConfigHistoryLoad(NULL, filename);
+}
+
+void linenoiseHistoryClear(void)
+{
+    linenoiseConfigHistoryClear(NULL);
+}
+
+const char *linenoiseHistoryGetLine(int index)
+{
+    return linenoiseConfigHistoryGetLine(NULL, index);
 }
 
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *fn) {

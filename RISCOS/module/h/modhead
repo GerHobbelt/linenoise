@@ -11,10 +11,10 @@
 
 #define Module_Title		"LineNoise"
 #define Module_Help		"LineNoise"
-#define Module_VersionString	"0.01"
-#define Module_VersionNumber	1
+#define Module_VersionString	"0.02"
+#define Module_VersionNumber	2
 #ifndef Module_Date
-#define Module_Date		"10 Mar 2023"
+#define Module_Date		"12 Mar 2023"
 #endif
 
 #ifdef __cplusplus
@@ -50,6 +50,60 @@ _kernel_oserror *Mod_Init(const char *tail, int podule_base, void *pw);
  *               error block if module was not shutdown properly.
  **************************************************************************/
 _kernel_oserror *Mod_Final(int fatal, int podule_base, void *pw);
+
+
+/***************************************************************************
+ * Description:  Star command and help request handler routines.
+ * Parameters:   arg_string = pointer to argument string (control
+ *                            terminated), or output buffer
+ *               argc       = number of arguments passed
+ *               number     = command number (see CMD_* definitions below)
+ *               pw         = private word for module
+ * On exit:      If number indicates a help entry:
+ *                 To output, assemble zero terminated output into
+ *                 arg_string, and return help_PRINT_BUFFER to print it.
+ *                 To stay silent, return NULL.
+ *                 To given an error, return an error pointer.
+ *                 [In this case, you need to cast the 'const' away]
+ *               If number indicates a configure option:
+ *                 If arg_string is arg_STATUS, then print status, otherwise
+ *                 use argc and arg_string to set option.
+ *                 Return NULL for no error.
+ *                 Return one of the four error codes below (configure_*)
+ *                 for a generic error message.
+ *                 Return an error pointer for a custom error.
+ *               If number indicates a command entry:
+ *                 Execute the command given by number, and arg_string.
+ *                 Return NULL on success,
+ *                 Return a pointer to an error block on failure.
+ **************************************************************************/
+_kernel_oserror *Mod_Command(const char *arg_string, int argc, int number,
+                             void *pw);
+_kernel_oserror *Cmd_LoadHistory(const char *arg_string, int argc,
+                                 int number, void *pw);
+_kernel_oserror *Cmd_SaveHistory(const char *arg_string, int argc,
+                                 int number, void *pw);
+_kernel_oserror *Cmd_Recall(const char *arg_string, int argc, int number,
+                            void *pw);
+_kernel_oserror *Cmd_EraseHistory(const char *arg_string, int argc,
+                                  int number, void *pw);
+#define help_PRINT_BUFFER		((_kernel_oserror *) arg_string)
+#define arg_CONFIGURE_SYNTAX		((char *) 0)
+#define arg_STATUS			((char *) 1)
+#define configure_BAD_OPTION		((_kernel_oserror *) -1)
+#define configure_NUMBER_NEEDED		((_kernel_oserror *) 1)
+#define configure_TOO_LARGE		((_kernel_oserror *) 2)
+#define configure_TOO_MANY_PARAMS	((_kernel_oserror *) 3)
+
+/* Command numbers, as passed to the command handler functions (see above) */
+#undef CMD_LoadHistory
+#define CMD_LoadHistory (0)
+#undef CMD_SaveHistory
+#define CMD_SaveHistory (1)
+#undef CMD_Recall
+#define CMD_Recall (2)
+#undef CMD_EraseHistory
+#define CMD_EraseHistory (3)
 
 
 /***************************************************************************

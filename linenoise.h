@@ -94,6 +94,8 @@ int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);
+void linenoiseHistoryClear(void);
+const char *linenoiseHistoryGetLine(int index);
 void linenoisePrintKeyCodes(void);
 
 char *linenoise2(struct linenoiseConfig *config, const char *prompt);
@@ -101,6 +103,8 @@ int linenoiseConfigHistoryAdd(struct linenoiseConfig *config, const char *line);
 int linenoiseConfigHistorySetMaxLen(struct linenoiseConfig *config, int len);
 int linenoiseConfigHistorySave(struct linenoiseConfig *config, const char *filename);
 int linenoiseConfigHistoryLoad(struct linenoiseConfig *config, const char *filename);
+void linenoiseConfigHistoryClear(struct linenoiseConfig *config);
+const char *linenoiseConfigHistoryGetLine(struct linenoiseConfig *config, int index);
 
 /* Callbacks */
 void linenoiseConfigSetCompletionCallback(struct linenoiseConfig *config, linenoiseCompletionCallback *);

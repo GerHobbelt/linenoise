@@ -192,3 +192,50 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
 
     return NULL;
 }
+
+
+_kernel_oserror *Mod_Command(const char *arg_string, int argc, int number,
+                             void *pw)
+{
+    /* Never called */
+    return NULL;
+}
+
+
+_kernel_oserror *Cmd_LoadHistory(const char *arg_string, int argc,
+                                 int number, void *pw)
+{
+    /* Load history should clear the history first,
+     * as the Load function actually appends */
+    linenoiseHistoryClear();
+    linenoiseHistoryLoad(arg_string);
+    return NULL;
+}
+
+_kernel_oserror *Cmd_SaveHistory(const char *arg_string, int argc,
+                                 int number, void *pw)
+{
+    linenoiseHistorySave(arg_string);
+    return NULL;
+}
+
+_kernel_oserror *Cmd_Recall(const char *arg_string, int argc, int number,
+                            void *pw)
+{
+    int index;
+    for (index=0; ;index ++)
+    {
+        const char *line = linenoiseHistoryGetLine(index);
+        if (!line)
+            break;
+        printf("%2i: %s\n", index, line);
+    }
+    return NULL;
+}
+
+_kernel_oserror *Cmd_EraseHistory(const char *arg_string, int argc,
+                                  int number, void *pw)
+{
+    linenoiseHistoryClear();
+    return NULL;
+}
