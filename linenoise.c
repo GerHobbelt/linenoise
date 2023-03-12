@@ -107,6 +107,7 @@
 #include <termios.h>
 #include <unistd.h>
 #endif
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
@@ -738,7 +739,7 @@ static void abAppend(struct abuf *ab, const char *s, int len) {
 
 static void abAppendChar(struct abuf *ab, char c, int len) {
     char *new;
-    if (len == 0)
+    if (len <= 0)
         return;
     new  = realloc(ab->b,ab->len+len);
 
@@ -750,6 +751,8 @@ static void abAppendChar(struct abuf *ab, char c, int len) {
 
 static void abFree(struct abuf *ab) {
     free(ab->b);
+    ab->b = NULL;
+    ab->len = 0;
 }
 
 /* Helper of refreshSingleLine() and refreshMultiLine() to show hints
@@ -812,12 +815,12 @@ static void refreshSingleLine(struct linenoiseState *l) {
     struct abuf ab;
     int hintlen;
 
-    while((plen+pos) >= l->cols) {
+    while((plen+pos) >= l->cols - 1) {
         buf++;
         len--;
         pos--;
     }
-    while (plen+len > l->cols) {
+    while (plen+len > l->cols - 1) {
         len--;
     }
 
@@ -847,7 +850,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
 #endif
 #endif
     if (l->config->maskmode != LINENOISE_MASKMODE_DISABLED) {
-        while (len--) abAppend(&ab, (char*)&l->config->maskmode, 1);
+        abAppendChar(&ab, l->config->maskmode, len);
     } else {
         abAppend(&ab,buf,len);
     }
@@ -861,9 +864,11 @@ static void refreshSingleLine(struct linenoiseState *l) {
         int offset = plen + len + hintlen;
         int spaces = (l->cols - 1) - offset;
         int count;
+        if (spaces < 0)
+            spaces = 0;
         abAppendChar(&ab, ' ', spaces);
 #ifdef NO_REWRITE_PROMPT
-        abAppendChar(&ab, '\x08', (l->cols - 1) - (pos + plen));
+        abAppendChar(&ab, '\x08', spaces + hintlen + (len - pos));
 #else
         abAppend(&ab, "\r", 1); /* Move to start of line */
 #endif
@@ -937,10 +942,8 @@ static void refreshMultiLine(struct linenoiseState *l) {
         {
             int spaces;
             abAppend(&ab,"\r",1);
-            for (spaces = l->cols; spaces; spaces--)
-                abAppend(&ab," ",1);
-            for (spaces = l->cols; spaces; spaces--)
-                abAppend(&ab,"\x08",1);
+            abAppendChar(&ab, ' ', l->cols - 1);
+            abAppendChar(&ab, '\x08', l->cols - 1);
             abAppend(&ab, "\x0b", 1); /* Move up a line */
         }
 #else
@@ -1093,7 +1096,7 @@ int linenoiseEditInsert(struct linenoiseState *l, char c) {
             l->pos++;
             l->len++;
             l->buf[l->len] = '\0';
-            if ((!l->config->mlmode && l->plen+l->len < l->cols && (!l->config->hintsCallback || l->hintsdisabled))) {
+            if ((!l->config->mlmode && l->plen+l->len < (l->cols - 1) && (!l->config->hintsCallback || l->hintsdisabled))) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
                 char d = (l->config->maskmode!=LINENOISE_MASKMODE_DISABLED) ? l->config->maskmode : c;
