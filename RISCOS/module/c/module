@@ -176,7 +176,11 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
         return NULL;
     }
 
-    linenoiseHistoryAdd(line); /* Add to the history. */
+    if (!use_password)
+    {
+        /* Add to the history, if it wasn't a password. */
+        linenoiseHistoryAdd(line);
+    }
 
     dprintf("Buffer = %p, length = %i\n", buffer, max_length);
     strncpy(buffer, line, max_length);
