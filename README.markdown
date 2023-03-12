@@ -1,59 +1,54 @@
-# Linenoise
+# Linenoise for RISC OS
 
-A minimal, zero-config, BSD licensed, readline replacement used in Redis,
-MongoDB, and Android.
+The original [Linenoise](https://github.com/antirez/linenoise) library is a minimal `readline` replacement, under BSD license. It was focused on providing a VT based editor for Unix-like systems.
 
-* Single and multi line editing mode with the usual key bindings implemented.
-* History handling.
-* Completion.
-* Hints (suggestions at the right of the prompt as you type).
-* About 1,100 lines of BSD license source code.
-* Only uses a subset of VT100 escapes (ANSI.SYS compatible).
+This repository ports the library to RISC OS, using its VDU codes, and adds functionality to allow it to be used as a replacement for the `OS_ReadLine` interface used by the majority of command line applications.
 
-## Can a line editing library be 20k lines of code?
+Although the repository is a departure from the original library, it should still be possible (albeit a little more involved) to be able to update the library from the upstream.
 
-Line editing with some support for history is a really important feature for command line utilities. Instead of retyping almost the same stuff again and again it's just much better to hit the up arrow and edit on syntax errors, or in order to try a slightly different command. But apparently code dealing with terminals is some sort of Black Magic: readline is 30k lines of code, libedit 20k. Is it reasonable to link small utilities to huge libraries just to get a minimal support for line editing?
+## RISC OS module
 
-So what usually happens is either:
+The RISC OS module, called `LineNoise`, provides an implementation of the `ReadLineV` interface used by the `OS_ReadLine` calls used by most RISC OS command line programs. It allows cursor editing of the input line, and supports history.
 
- * Large programs with configure scripts disabling line editing if readline is not present in the system, or not supporting it at all since readline is GPL licensed and libedit (the BSD clone) is not as known and available as readline is (Real world example of this problem: Tclsh).
- * Smaller programs not using a configure script not supporting line editing at all (A problem we had with Redis-cli for instance).
- 
-The result is a pollution of binaries without line editing support.
+It has failings:
 
-So I spent more or less two hours doing a reality check resulting in this little library: is it *really* needed for a line editing library to be 20k lines of code? Apparently not, it is possibe to get a very small, zero configuration, trivial to embed library, that solves the problem. Smaller programs will just include this, supporting line editing out of the box. Larger programs may use this little library or just checking with configure if readline/libedit is available and resorting to Linenoise if not.
+* May not function correctly when invoked in multiple TaskWindows.
 
-## Terminals, in 2010.
+The module has been produced to provide a C-based implementation of a ReadLine system, rather than the assembler-only version provided in the ReadLine module (previously in the Kernel), and the [LineEditor module](https://github.com/philpem/LineEditor).
 
-Apparently almost every terminal you can happen to use today has some kind of support for basic VT100 escape sequences. So I tried to write a lib using just very basic VT100 features. The resulting library appears to work everywhere I tried to use it, and now can work even on ANSI.SYS compatible terminals, since no
-VT220 specific sequences are used anymore.
 
-The library is currently about 1100 lines of code. In order to use it in your project just look at the *example.c* file in the source distribution, it is trivial. Linenoise is BSD code, so you can use both in free software and commercial software.
+## Releases
 
-## Tested with...
+The repository will automatically produce releases for any tags beginning with a `v`. This means that the releases that can be found on the [GitHub pages](https://github.com/gerph/linenoise/releases) will be up to date with the sources.
 
- * Linux text only console ($TERM = linux)
- * Linux KDE terminal application ($TERM = xterm)
- * Linux xterm ($TERM = xterm)
- * Linux Buildroot ($TERM = vt100)
- * Mac OS X iTerm ($TERM = xterm)
- * Mac OS X default Terminal.app ($TERM = xterm)
- * OpenBSD 4.5 through an OSX Terminal.app ($TERM = screen)
- * IBM AIX 6.1
- * FreeBSD xterm ($TERM = xterm)
- * ANSI.SYS
- * Emacs comint mode ($TERM = dumb)
+In addition to the source archives which are always present on releases, the binary release archive contains:
 
-Please test it everywhere you can and report back!
+* A built version of the libraries in 26bit, 32bit, application and module variants.
+* The header for the library.
+* A built version of the example program
+* A built version of the LineNoise module.
 
-## Let's push this forward!
 
-Patches should be provided in the respect of Linenoise sensibility for small
-easy to understand code.
+## Core library
 
-Send feedbacks to antirez at gmail
+Creating the RISC OS module has required a number of feature changes to the library interface:
 
-# The API
+* The line editor's history and configuration can now be instantiated separately (the `linenoiseConfig*` function provide this more flexible interface).
+* Maximum line length is now configurable.
+* Masked mode can now select the character that is to be displayed, rather than just forcing the use of `*`.
+* Editing operations which fail can call a registered callback function, or will beep by default. Callbacks are provided for insertions, deletions, completion requests, history movement and cursor movement.
+* Insertion into the buffer can now check for the acceptability of the character being inserted, through a callback function.
+* History can be cleared, and can be enumerated.
+* Error codes used by the library are now more strongly defined.
+* Restricts the output to the window width - 1 to avoid scrolling unnecessarily.
+
+There remain some failings:
+
+* Multi-line editing currently isn't reliable.
+* Hints are not tested.
+* Callbacks do not contexts to indicate which context is in use.
+
+## The API
 
 Linenoise is very easy to use, and reading the example shipped with the
 library should get you up to speed ASAP. Here is a list of API calls
@@ -67,16 +62,8 @@ it will be printed to the left of the cursor. The library returns a buffer
 with the line composed by the user, or NULL on end of file or when there
 is an out of memory condition.
 
-When a tty is detected (the user is actually typing into a terminal session)
-the maximum editable line length is `LINENOISE_MAX_LINE`. When instead the
-standard input is not a tty, which happens every time you redirect a file
-to a program, or use it in an Unix pipeline, there are no limits to the
-length of the line that can be returned.
-
-The returned line should be freed with the `free()` standard system call.
-However sometimes it could happen that your program uses a different dynamic
-allocation library, so you may also used `linenoiseFree` to make sure the
-line is freed with the same allocator it was created.
+The returned line should be freed with the `linenoiseFree()` function to make
+sure the line is freed with the same allocator it was created.
 
 The canonical loop used by a program using Linenoise will be something like
 this:
@@ -100,6 +87,9 @@ In order to enable multi line editing use the following API call:
 
 You can disable it using `0` as argument.
 
+*Note:* This is not a reliable operation under the RISC OS port at present.
+
+
 ## History
 
 Linenoise supporst history, so that the user does not have to retype
@@ -112,6 +102,8 @@ The followings are the history API calls:
     int linenoiseHistorySetMaxLen(int len);
     int linenoiseHistorySave(const char *filename);
     int linenoiseHistoryLoad(const char *filename);
+    void linenoiseHistoryClear(void);
+    const char *linenoiseHistoryGetLine(int index);
 
 Use `linenoiseHistoryAdd` every time you want to add a new element
 to the top of the history (it will be the first the user will see when
@@ -124,13 +116,21 @@ function.
 
 Linenoise has direct support for persisting the history into an history
 file. The functions `linenoiseHistorySave` and `linenoiseHistoryLoad` do
-just that. Both functions return -1 on error and 0 on success.
+just that. Both functions return -1 on error and 0 on success. The load
+function will append to the current history. If you wish to start with
+a clean history, call the `linenoiseHistoryClear` function first.
+
+To read the history lines (as you might if displaying the history to
+the user), the `linenoiseHistoryGetLine` function can be called. It
+takes an index from the most recent line which should be accessed, and
+returns NULL is no history line is available. If the index is negative.
+the lines will be returned from the oldest to the newest.
 
 ## Mask mode
 
 Sometimes it is useful to allow the user to type passwords or other
 secrets that should not be displayed. For such situations linenoise supports
-a "mask mode" that will just replace the characters the user is typing 
+a "mask mode" that will just replace the characters the user is typing
 with `*` characters, like in the following example:
 
     $ ./linenoise_example
@@ -143,6 +143,12 @@ You can enable and disable mask mode using the following two functions:
 
     void linenoiseMaskModeEnable(void);
     void linenoiseMaskModeDisable(void);
+
+For more control, the character used to mask the output can be supplied
+if the default is not suitable:
+
+    void linenoiseMaskModeChar(void);
+
 
 ## Completion
 
@@ -232,7 +238,69 @@ Color codes are:
     blue = 34
     magenta = 35
     cyan = 36
-    white = 37;
+    white = 37
+
+*Note:* Color and bold information is not used by the RISC OS port. Hints
+have not been tested heavily.
+
+## Insertion acceptability
+
+For some inputs, it is useful to be able to vet the input for acceptability,
+and not allow certain inputs to be used. This is might be used to restrict
+the input to just digits for a number, for example. A callback function is
+used to check whether the character being inserted is suitable for the
+buffer. The callback can be registered with:
+
+    void linenoiseSetInsertCallback(linenoiseInsertCallback *);
+
+The callback is called when a new character is inserted into the buffer,
+and supplies the character, the current buffer, and the index into the buffer
+that the character will be inserted. The callback should return 1 if the
+chacater is acceptable, or 0 to reject it. Vetting the input to only allow
+numbers might be implemented as:
+
+    int insert_numbers_only(char c, const char *buffer, int pos)
+    {
+        return (c >= '0' && c <= '9');
+    }
+
+
+## Rejected user operations
+
+Some user operations will not be actioned by the library. Examples might be:
+
+* Attempting a completion when no candidates are available.
+* Inserting a character when the buffer is already full.
+* Deleting a character when the cursor is at the end of the buffer.
+* Moving beyond the start or end of the history.
+* Moving beyond the start of end of the buffer.
+
+These will by default issue a bell to the terminal to indicate that the
+operation was not performed. However, this may not be suitable for all uses
+and can be configured through the use of a callback function. The callback
+can be registered with:
+
+    void linenoiseSetFailCallback(linenoiseFailCallback *);
+
+The function is called with a parameter indicating the type of failure.
+Alternative forms of notification can therefore be provided to the user
+if necessary.
+
+## Multiple configurations
+
+The original Linenoise library allows only a single configuration and
+history. This interface has been retained, but all the interfaces are
+able duplicated to allow them to be used with a custom configuration
+and history. All the `linenoise` prefixed functions have
+`linenoiseConfig` prefixed variants which take a configuration pointer
+as their first parameter.
+
+New configuration contexts can be created and freed with:
+
+    struct linenoiseConfig *linenoiseNewConfig(void);
+    void linenoiseFreeConfig(struct linenoiseConfig *config);
+
+It is the user's responsibility to free configurations after use.
 
 ## Screen handling
 
@@ -243,5 +311,6 @@ user typed. You can do this by calling the following function:
 
 ## Related projects
 
+* [Linenoise](https://github.com/antirez/linenoise) is the original version of Linenoise.
 * [Linenoise NG](https://github.com/arangodb/linenoise-ng) is a fork of Linenoise that aims to add more advanced features like UTF-8 support, Windows support and other features. Uses C++ instead of C as development language.
 * [Linenoise-swift](https://github.com/andybest/linenoise-swift) is a reimplementation of Linenoise written in Swift.
