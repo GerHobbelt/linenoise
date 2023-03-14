@@ -1174,6 +1174,14 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     if (l->config->history_len > 1) {
         /* Update the current history entry before to
          * overwrite it with the next one. */
+        if (l->history_index >= l->config->history_len) {
+            /* Our history index is outside the current history - presumably, someone has cleared
+             * the history whilst we were running.
+             */
+            l->history_index = 0;
+            goto no_history;
+        }
+
         free(l->config->history[l->config->history_len - 1 - l->history_index]);
         l->config->history[l->config->history_len - 1 - l->history_index] = strdup(l->buf);
         /* Show the new entry */
