@@ -282,13 +282,6 @@ enum KEY_ACTION{
 	BACKSPACE =  127    /* Backspace */
 };
 
-enum CURSORS {
-    CURSOR_LEFT = 136,
-    CURSOR_RIGHT = 137,
-    CURSOR_DOWN = 138,
-    CURSOR_UP = 139
-};
-
 #ifndef __riscos
 static void linenoiseAtExit(void);
 #endif
@@ -1297,7 +1290,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
 
 #ifdef __riscos
     cursors_readstate(&l.cursorstate);
-    cursors_keys(&l.cursorstate, 1);
+    cursors_keys(&l.cursorstate, cks_escaped);
 #endif
 
     /* Buffer starts empty. */
@@ -1390,18 +1383,37 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
 #ifdef __riscos
-            /* FIXME: Does not use the escaping sequences yet */
-        case CURSOR_UP:
-            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
-            break;
-        case CURSOR_DOWN:
-            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
-            break;
-        case CURSOR_LEFT:
-            linenoiseEditMoveLeft(&l);
-            break;
-        case CURSOR_RIGHT:
-            linenoiseEditMoveRight(&l);
+        case 0: /* RISC OS Escaping for characters */
+            nread = read(l.ifd,&c,1);
+            if (nread <= 0) {
+                if (nread == 0)
+                {
+                    return l.len;
+                }
+                return -1;
+            }
+
+            switch (c)
+            {
+                case cursorkeycode_escaped_up:
+                    linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
+                    break;
+                case cursorkeycode_escaped_down:
+                    linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
+                    break;
+                case cursorkeycode_escaped_left:
+                    linenoiseEditMoveLeft(&l);
+                    break;
+                case cursorkeycode_escaped_right:
+                    linenoiseEditMoveRight(&l);
+                    break;
+
+                default:
+                    /* If the escaped key wasn't a cursor code, we'll fall back
+                     * to the regular insertion.
+                     */
+                    goto insert_character;
+            }
             break;
 #else
         case ESC:    /* escape sequence */
@@ -1461,6 +1473,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             break;
 #endif
         default:
+insert_character:
             if (linenoiseEditInsert(&l,c)) {
                 errno = LINENOISE_ERRNO_FAILWRITE;
                 return -1;
@@ -1506,7 +1519,7 @@ void linenoisePrintKeyCodes(void) {
 #ifdef __riscos
     cursorstate_t cursorstate;
     cursors_readstate(&cursorstate);
-    cursors_keys(&cursorstate, 1);
+    cursors_keys(&cursorstate, cks_escaped);
 #endif
 
     printf("Linenoise key codes debugging mode.\n"

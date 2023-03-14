@@ -16,8 +16,9 @@ typedef enum {
 
 typedef enum {
     cks_unchanged,
-    cks_copy,
-    cks_character
+    cks_copy,           /* Acorn-style cursor key copying */
+    cks_character,      /* Simple characters (136-139) */
+    cks_escaped         /* Escaped characters (0 then 136-139) (also affects F keys) */
 } cursorkeystate_t;
 
 typedef struct cursorstate_s {
@@ -26,6 +27,19 @@ typedef struct cursorstate_s {
     cursorkeystate_t        cursorkeystate_old;
     cursorkeystate_t        cursorkeystate_current;
 } cursorstate_t;
+
+enum cursorkeycodes_e {
+    cursorkeycode_left = 136,
+    cursorkeycode_right = 137,
+    cursorkeycode_down = 138,
+    cursorkeycode_up = 139,
+
+    cursorkeycode_escaped_left = 140,
+    cursorkeycode_escaped_right = 141,
+    cursorkeycode_escaped_down = 142,
+    cursorkeycode_escaped_up = 143
+};
+
 
 /*************************************************** Gerph *********
  Function:     cursors_readstate
@@ -57,10 +71,11 @@ void cursors_visible(cursorstate_t *state, int on);
  Function:      cursors_keys
  Description:   Codes returned by cursor keys
  Parameters:    state -> the state to update
-                on = 1 for cursor keys inputting characters
-                     0 for cursor keys performing copy editing
+                keys = cks_character for cursor keys inputting characters
+                       cks_copy for cursor keys performing copy editing
+                       cks_escaped for escaped input characters
  Returns:       none
  ******************************************************************/
-void cursors_keys(cursorstate_t *state, int on);
+void cursors_keys(cursorstate_t *state, cursorkeystate_t keys);
 
 #endif

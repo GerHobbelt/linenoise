@@ -78,23 +78,32 @@ void cursors_visible(cursorstate_t *state, int on)
  Function:      cursors_keys
  Description:   Codes returned by cursor keys
  Parameters:    state -> the state to update
-                on = 1 for cursor keys inputting characters
-                     0 for cursor keys performing copy editing
+                keys = cks_character for cursor keys inputting characters
+                       cks_copy for cursor keys performing copy editing
+                       cks_escaped for escaped input characters
  Returns:       none
  ******************************************************************/
-void cursors_keys(cursorstate_t *state, int on)
+void cursors_keys(cursorstate_t *state, cursorkeystate_t keys)
 {
-    cursorkeystate_t new_state = on ? cks_character : cks_copy;
-    if (state->cursorkeystate_current == new_state)
+    if (state->cursorkeystate_current == keys)
         return;
 
-    if (on)
+    switch (keys)
     {
-        _swix(OS_Byte, _INR(0,1), 4, 1);
+        case cks_character:
+            _swix(OS_Byte, _INR(0,1), 4, 1);
+            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Codes are literal */
+            break;
+
+        case cks_copy:
+            _swix(OS_Byte, _INR(0,1), 4, 0);
+            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Codes are literal */
+            break;
+
+        case cks_escaped:
+            _swix(OS_Byte, _INR(0,1), 4, 2);
+            _swix(OS_Byte, _INR(0,2), 225, 2, 0); /* Codes are escaped */
+            break;
     }
-    else
-    {
-        _swix(OS_Byte, _INR(0,1), 4, 0);
-    }
-    state->cursorkeystate_current = new_state;
+    state->cursorkeystate_current = keys;
 }
