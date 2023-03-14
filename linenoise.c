@@ -1257,6 +1257,33 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
     }
 }
 
+#ifdef __riscos
+static int linenoiseEditFunctionKey(struct linenoiseState *l, int fkey) {
+    char varname[12];
+    char *key;
+    sprintf(varname, "Key$%i", fkey);
+    key = getenv(varname);
+    if (!key)
+    {
+        /* No key programmed, so we just do nothing */
+        return 0;
+    }
+    for (; *key; key++)
+    {
+        char c = *key;
+        if (c < 32) {
+            /* Stop as soon as we hit a control character */
+            break;
+        }
+        if (linenoiseEditInsert(l, c)) {
+            return -1;
+        }
+    }
+    return 0;
+}
+#endif
+
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -1395,6 +1422,22 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
 
             switch (c)
             {
+                case cursorkeycode_escaped_f1:
+                case cursorkeycode_escaped_f2:
+                case cursorkeycode_escaped_f3:
+                case cursorkeycode_escaped_f4:
+                case cursorkeycode_escaped_f5:
+                case cursorkeycode_escaped_f6:
+                case cursorkeycode_escaped_f7:
+                case cursorkeycode_escaped_f8:
+                case cursorkeycode_escaped_f9:
+                    /* We know that the function key codes for 1-9 are all ascending from F1 */
+                    if (linenoiseEditFunctionKey(&l, c - cursorkeycode_escaped_f1 + 1) == -1) {
+                        errno = LINENOISE_ERRNO_FAILWRITE;
+                        return -1;
+                    }
+                    break;
+
                 case cursorkeycode_escaped_up:
                     linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
                     break;

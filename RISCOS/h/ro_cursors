@@ -34,6 +34,16 @@ enum cursorkeycodes_e {
     cursorkeycode_down = 138,
     cursorkeycode_up = 139,
 
+    cursorkeycode_escaped_f1 = 129,
+    cursorkeycode_escaped_f2 = 130,
+    cursorkeycode_escaped_f3 = 131,
+    cursorkeycode_escaped_f4 = 132,
+    cursorkeycode_escaped_f5 = 133,
+    cursorkeycode_escaped_f6 = 134,
+    cursorkeycode_escaped_f7 = 135,
+    cursorkeycode_escaped_f8 = 136,
+    cursorkeycode_escaped_f9 = 137,
+
     cursorkeycode_escaped_left = 140,
     cursorkeycode_escaped_right = 141,
     cursorkeycode_escaped_down = 142,
