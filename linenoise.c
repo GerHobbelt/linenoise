@@ -1373,10 +1373,15 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
         case CTRL_C:     /* ctrl-c */
             errno = LINENOISE_ERRNO_CTRLC;
             return -1;
+#ifndef __riscos
         case BACKSPACE:   /* backspace */
+#endif
         case 8:     /* ctrl-h */
             linenoiseEditBackspace(&l);
             break;
+#ifdef __riscos
+        case BACKSPACE:   /* backspace */
+#endif
         case CTRL_D:     /* ctrl-d, remove char at right of cursor, or if the
                             line is empty, act as end-of-file. */
             if (l.len > 0) {
