@@ -45,15 +45,17 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
 
-      # Step intended to be reused in CI pipelines.
+      - name: Obtain prerequisite build tool
+        run: |
+          # Fetch the build client
+          curl -s -L -o riscos-build-online https://github.com/gerph/robuild-client/releases/download/v0.05/riscos-build-online && chmod +x riscos-build-online
+
       - name: Build through build.riscos.online
         run: |
           set -o pipefail
           cd RISCOS && make -f genlinks.makefile && cd ..
           # Zip up the source to send to robuild
           zip -q9r /tmp/source-archive.zip RISCOS/c RISCOS/h RISCOS/module/c RISCOS/module/h RISCOS/module/cmhg RISCOS/module/s RISCOS/Makefile* RISCOS/module/Makefile* RISCOS/module/VersionNum .robuild.yaml 
-          # Fetch the build client
-          curl -s -L -o riscos-build-online https://github.com/gerph/robuild-client/releases/download/v0.05/riscos-build-online && chmod +x riscos-build-online
           # Send the archive file to build service
           ./riscos-build-online -i /tmp/source-archive.zip -a off -o /tmp/built
 
