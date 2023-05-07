@@ -24,8 +24,8 @@ typedef enum {
 typedef struct cursorstate_s {
     cursorvisiblestate_t    cursorvisiblestate_old;
     cursorvisiblestate_t    cursorvisiblestate_current;
-    cursorkeystate_t        cursorkeystate_old;
     cursorkeystate_t        cursorkeystate_current;
+    char cursorfkeystate_old[8]; /* OS_Byte values for the initial key mappings */
 } cursorstate_t;
 
 enum cursorkeycodes_e {
@@ -33,6 +33,12 @@ enum cursorkeycodes_e {
     cursorkeycode_right = 137,
     cursorkeycode_down = 138,
     cursorkeycode_up = 139,
+
+    cursorkeycode_escaped_delete = 127,
+    cursorkeycode_escaped_end = 139,
+    cursorkeycode_escaped_shift_end = 155,
+    cursorkeycode_escaped_ctrl_end = 171,
+    cursorkeycode_escaped_shift_ctrl_end = 187,
 
     cursorkeycode_escaped_f1 = 129,
     cursorkeycode_escaped_f2 = 130,
@@ -43,11 +49,55 @@ enum cursorkeycodes_e {
     cursorkeycode_escaped_f7 = 135,
     cursorkeycode_escaped_f8 = 136,
     cursorkeycode_escaped_f9 = 137,
+    cursorkeycode_escaped_f10 = 202,
+    cursorkeycode_escaped_f11 = 203,
+    cursorkeycode_escaped_f12 = 204,
+
+    cursorkeycode_escaped_shift_f1 = 145,
+    cursorkeycode_escaped_shift_f2 = 146,
+    cursorkeycode_escaped_shift_f3 = 147,
+    cursorkeycode_escaped_shift_f4 = 148,
+    cursorkeycode_escaped_shift_f5 = 149,
+    cursorkeycode_escaped_shift_f6 = 150,
+    cursorkeycode_escaped_shift_f7 = 151,
+    cursorkeycode_escaped_shift_f8 = 152,
+    cursorkeycode_escaped_shift_f9 = 153,
+    cursorkeycode_escaped_shift_f10 = 218,
+    cursorkeycode_escaped_shift_f11 = 219,
+    cursorkeycode_escaped_shift_f12 = 220,
+
+    cursorkeycode_escaped_shift_ctrl_f1 = 177,
+    cursorkeycode_escaped_shift_ctrl_f2 = 178,
+    cursorkeycode_escaped_shift_ctrl_f3 = 179,
+    cursorkeycode_escaped_shift_ctrl_f4 = 180,
+    cursorkeycode_escaped_shift_ctrl_f5 = 181,
+    cursorkeycode_escaped_shift_ctrl_f6 = 182,
+    cursorkeycode_escaped_shift_ctrl_f7 = 183,
+    cursorkeycode_escaped_shift_ctrl_f8 = 184,
+    cursorkeycode_escaped_shift_ctrl_f9 = 185,
+    cursorkeycode_escaped_shift_ctrl_f10 = 250,
+    cursorkeycode_escaped_shift_ctrl_f11 = 251,
+    cursorkeycode_escaped_shift_ctrl_f12 = 252,
 
     cursorkeycode_escaped_left = 140,
     cursorkeycode_escaped_right = 141,
     cursorkeycode_escaped_down = 142,
-    cursorkeycode_escaped_up = 143
+    cursorkeycode_escaped_up = 143,
+    cursorkeycode_escaped_pagedown = 158,
+    cursorkeycode_escaped_pageup = 159,
+
+    cursorkeycode_escaped_shift_pagedown = 142,
+    cursorkeycode_escaped_shift_pageup = 143,
+
+    cursorkeycode_escaped_shift_left = 156,
+    cursorkeycode_escaped_shift_right = 157,
+    cursorkeycode_escaped_shift_down = 158,
+    cursorkeycode_escaped_shift_up = 159,
+
+    cursorkeycode_escaped_shift_ctrl_left = 188,
+    cursorkeycode_escaped_shift_ctrl_right = 189,
+    cursorkeycode_escaped_shift_ctrl_down = 190,
+    cursorkeycode_escaped_shift_ctrl_up = 191
 };
 
 

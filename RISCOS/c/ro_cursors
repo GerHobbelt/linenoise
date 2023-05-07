@@ -7,7 +7,9 @@
 
 #include "swis.h"
 
+#ifdef FORTIFY
 #include "fortify.h"
+#endif
 
 #include "ro_cursors.h"
 
@@ -20,13 +22,20 @@
  ******************************************************************/
 void cursors_readstate(cursorstate_t *state)
 {
+    int i;
     state->cursorvisiblestate_old = cvs_visible;
     /* FIXME: Read the old visible state */
     state->cursorvisiblestate_current = cvs_unchanged;
 
-    state->cursorkeystate_old = cks_copy;
-    /* FIXME: Read the old cursor key state */
     state->cursorkeystate_current = cks_unchanged;
+
+    /* Read the original input key state */
+    for (i=0; i<8; i++)
+    {
+        int value;
+        _swix(OS_Byte, _INR(0, 2)|_OUT(1), 221 + i, 0, 255, &value);
+        state->cursorfkeystate_old[i] = value;
+    }
 }
 
 
@@ -41,6 +50,16 @@ void cursors_restore(cursorstate_t *state)
     if (state->cursorvisiblestate_current != cvs_unchanged)
     {
         cursors_visible(state, state->cursorvisiblestate_old == cvs_visible);
+    }
+
+    /* Restore the cursor state */
+    if (state->cursorkeystate_current != cvs_unchanged)
+    {
+        int i;
+        for (i=0; i<8; i++)
+        {
+            _swix(OS_Byte, _INR(0, 2)|_OUT(1), 221 + i, state->cursorfkeystate_old[i], 0);
+        }
     }
 }
 
@@ -62,12 +81,12 @@ void cursors_visible(cursorstate_t *state, int on)
        intended for internal graphics operations. */
     if (on)
     {
-        static const char vdu_off[] = { 23, 1, 0, 0,0,0,0,0,0,0,0 };
+        static const char vdu_off[] = { 23, 1, 1, 0,0,0,0,0,0,0,0 };
         _swix(OS_WriteN, _INR(0,1), vdu_off, 10);
     }
     else
     {
-        static const char vdu_on[] = { 23, 1, 1, 0,0,0,0,0,0,0,0 };
+        static const char vdu_on[] = { 23, 1, 0, 0,0,0,0,0,0,0,0 };
         _swix(OS_WriteN, _INR(0,1), vdu_on, 10);
     }
     state->cursorvisiblestate_current = new_state;
@@ -88,21 +107,46 @@ void cursors_keys(cursorstate_t *state, cursorkeystate_t keys)
     if (state->cursorkeystate_current == keys)
         return;
 
+    /* FIXME: We're affecting both the cursor keys and the function keys
+     *        in these operations. Most of the time that's what we want,
+     *        but it's not especially flexible.
+     */
     switch (keys)
     {
         case cks_character:
             _swix(OS_Byte, _INR(0,1), 4, 1);
-            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 221, 0xC0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 222, 0xD0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 223, 0xE0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 224, 0xF0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Function keys */
+            _swix(OS_Byte, _INR(0,2), 226, 0x80, 0); /* Based at &80 */
+            _swix(OS_Byte, _INR(0,2), 227, 0x90, 0); /* Based at &90 */
+            _swix(OS_Byte, _INR(0,2), 228, 0, 0); /* Discarded */
             break;
 
-        case cks_copy:
+        case cks_copy: /* Copy operations; default case */
             _swix(OS_Byte, _INR(0,1), 4, 0);
-            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 221, 0xC0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 222, 0xD0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 223, 0xE0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 224, 0xF0, 0); /* Codes are literal */
+            _swix(OS_Byte, _INR(0,2), 225, 1, 0); /* Function keys */
+            _swix(OS_Byte, _INR(0,2), 226, 0x80, 0); /* Based at &80 */
+            _swix(OS_Byte, _INR(0,2), 227, 0x90, 0); /* Based at &90 */
+            _swix(OS_Byte, _INR(0,2), 228, 0, 0); /* Discarded */
             break;
 
         case cks_escaped:
             _swix(OS_Byte, _INR(0,1), 4, 2);
+            _swix(OS_Byte, _INR(0,2), 221, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 222, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 223, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 224, 2, 0); /* Codes are escaped */
             _swix(OS_Byte, _INR(0,2), 225, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 226, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 227, 2, 0); /* Codes are escaped */
+            _swix(OS_Byte, _INR(0,2), 228, 2, 0); /* Codes are escaped */
             break;
     }
     state->cursorkeystate_current = keys;
