@@ -1330,7 +1330,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
 
     if (prompt && write(l.ofd,prompt,l.plen) == -1) {
         errno = LINENOISE_ERRNO_FAILWRITE;
-        return -1;
+        goto failed;
     }
     while(1) {
         char c;
@@ -1341,9 +1341,9 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
         if (nread <= 0) {
             if (nread == 0)
             {
-                return l.len;
+                goto done;
             }
-            return -1;
+            goto failed;
         }
 
         /* Only autocomplete when the callback is set. It returns < 0 when
@@ -1352,7 +1352,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
         if (c == 9 && l.config->completionCallback != NULL) {
             c = completeLine(&l);
             /* Return on errors */
-            if (c < 0) return l.len;
+            if (c < 0) goto done;
             /* Read next character when 0 */
             if (c == 0) continue;
         }
@@ -1369,10 +1369,10 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
                 refreshLine(&l);
                 l.hintsdisabled = 0;
             }
-            return (int)l.len;
+            goto done;
         case CTRL_C:     /* ctrl-c */
             errno = LINENOISE_ERRNO_CTRLC;
-            return -1;
+            goto failed;
 #ifndef __riscos
         case BACKSPACE:   /* backspace */
 #endif
@@ -1390,7 +1390,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
                 l.config->history_len--;
                 free(l.config->history[l.config->history_len]);
                 errno = LINENOISE_ERRNO_CTRLD;
-                return -1;
+                goto failed;
             }
             break;
         case CTRL_T:    /* ctrl-t, swaps current character with previous. */
@@ -1420,9 +1420,9 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
             if (nread <= 0) {
                 if (nread == 0)
                 {
-                    return l.len;
+                    goto done;
                 }
-                return -1;
+                goto failed;
             }
 
             switch (c)
@@ -1439,7 +1439,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
                     /* We know that the function key codes for 1-9 are all ascending from F1 */
                     if (linenoiseEditFunctionKey(&l, c - cursorkeycode_escaped_f1 + 1) == -1) {
                         errno = LINENOISE_ERRNO_FAILWRITE;
-                        return -1;
+                        goto failed;
                     }
                     break;
 
@@ -1524,7 +1524,7 @@ static int linenoiseEdit(struct linenoiseConfig *config, int stdin_fd, int stdou
 insert_character:
             if (linenoiseEditInsert(&l,c)) {
                 errno = LINENOISE_ERRNO_FAILWRITE;
-                return -1;
+                goto failed;
             }
             break;
         case CTRL_U: /* Ctrl+u, delete the whole line. */
@@ -1552,10 +1552,18 @@ insert_character:
             break;
         }
     }
+
+done:
 #ifdef __riscos
     cursors_restore(&l.cursorstate);
 #endif
     return l.len;
+
+failed:
+#ifdef __riscos
+    cursors_restore(&l.cursorstate);
+#endif
+    return -1;
 }
 
 /* This special mode is used by linenoise in order to print scan codes
