@@ -1,3 +1,5 @@
+(forked from https://github.com/antirez/linenoise)
+
 # Linenoise
 
 A minimal, zero-config, BSD licensed, readline replacement used in Redis,
