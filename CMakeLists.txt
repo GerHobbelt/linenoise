@@ -4,6 +4,8 @@ project(linenoise "C")
 
 set(src "linenoise.c")
 set(inc ${CMAKE_CURRENT_SOURCE_DIR})
+set(priv_inc ${inc}/linenoise)
 
 add_library(${PROJECT_NAME} ${src})
-target_include_directories(${PROJECT_NAME} PUBLIC ${inc})
+target_include_directories(${PROJECT_NAME} PUBLIC  ${inc})
+target_include_directories(${PROJECT_NAME} PRIVATE ${inc}/linenoise)
