@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include "linenoise.h"
 
+#include "monolithic_examples.h"
+
 #ifndef NO_COMPLETION
-void completion(const char *buf, linenoiseCompletions *lc) {
+static void completion(const char *buf, linenoiseCompletions *lc) {
     if (buf[0] == 'h') {
         linenoiseAddCompletion(lc,"hello");
         linenoiseAddCompletion(lc,"hello there");
@@ -14,12 +16,12 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 static int in_string = 0;
 static size_t string_start = 0;
 
-void reset_string_mode(void) {
+static void reset_string_mode(void) {
 	in_string = 0;
 	string_start = 0;
 }
 
-int foundspace(const char *buf, size_t len, char c) {
+static int foundspace(const char *buf, size_t len, char c) {
     if (in_string) return 0;
 
     if (len == 0) return 1;
@@ -30,7 +32,7 @@ int foundspace(const char *buf, size_t len, char c) {
     return 0;
 }
 
-int escapedquote(const char *start)
+static int escapedquote(const char *start)
 {
     while (*start) {
         if (*start == '\\') {
@@ -43,7 +45,7 @@ int escapedquote(const char *start)
 }
 
 
-int foundquote(const char *buf, size_t len, char c) {
+static int foundquote(const char *buf, size_t len, char c) {
     if (!in_string) {
         in_string = 1;
 	string_start = len;
@@ -61,7 +63,7 @@ int foundquote(const char *buf, size_t len, char c) {
     return 0;
 }
 
-int foundhelp(const char *buf, size_t len, char c) {
+static int foundhelp(const char *buf, size_t len, char c) {
     if (in_string) return 0;
 
     len = len;			/* -Wunused */
@@ -70,6 +72,11 @@ int foundhelp(const char *buf, size_t len, char c) {
     printf("?\r\nHELP: %s\r\n", buf);
     return 1;
 }
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main      linenoise_example_main
+#endif
 
 int main(void) {
     char *line;

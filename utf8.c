@@ -13,6 +13,7 @@
 #include "utf8.h"
 
 #ifdef USE_UTF8
+
 int utf8_fromunicode(char *p, unsigned short uc)
 {
     if (uc <= 0x7f) {
