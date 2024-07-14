@@ -27,6 +27,9 @@
 #define OSByte_SetEscape (0x7D)
 #define ReadLineV   (0x0E)
 
+static int os_is_32bit = 0;
+
+
 /***************************************************************************
  * Function:     Mod_Init
  * Description:  Initialise the module, setting up vectors, callbacks and
@@ -42,11 +45,19 @@
 _kernel_oserror *Mod_Init(const char *tail, int podule_base, void *pw)
 {
     _kernel_oserror *err;
+    int value;
+
+    err = _swix(OS_PlatformFeatures, _IN(0)|_OUT(0), 0, &value);
+    if (err)
+        os_is_32bit = 0; /* No OS_PlatformFeatures => must be 26bit OS */
+    else
+        os_is_32bit = (value & (1<<6)) ? 1 : 0;
+
     err = _swix(OS_Claim, _INR(0, 2), ReadLineV, ReadLineV_SpecialEntry, pw);
     if (err)
         return err;
 
-    printf("Module LineNoise initialised\n");
+    dprintf("Module LineNoise initialised\n");
     return NULL;
 }
 
@@ -66,7 +77,7 @@ _kernel_oserror *Mod_Init(const char *tail, int podule_base, void *pw)
 _kernel_oserror *Mod_Final(int fatal, int podule_base, void *pw)
 {
     _kernel_oserror *err;
-    printf("Module LineNoise dying\n");
+    dprintf("Module LineNoise dying\n");
 
     err = _swix(OS_Release, _INR(0, 2), ReadLineV, ReadLineV_SpecialEntry, pw);
     if (err)
@@ -139,7 +150,7 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
           C=0 => line terminated by return (CR or LF)
           C=1 => line terminated by ESCAPE
     */
-    int r4_holds_flags = r->r[1] & (1<<31);
+    int r4_holds_flags = os_is_32bit ? 1 : (r->r[1] & (1<<31));
     int max_length = r->r[1] & ~(1<<31);
     int low_char = r->r[2];
     int high_char = r->r[3];
@@ -150,6 +161,7 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
 
     char *buffer = (char*)(r4_holds_flags ? r->r[0] : (r->r[0] & ((1<<27)-1)));
     char *line;
+    dprintf("ReadLineV_Handler (r4 holds flags=%i)\n", r4_holds_flags);
 
     if (max_length > (1<<26) || max_length <= 0)
         return err_BadLineLength;
@@ -169,6 +181,7 @@ _kernel_oserror *ReadLineV_Handler(_kernel_swi_regs *r, void *pw)
     if (line == NULL)
     {
         /* We failed. Report this as an escape. */
+        dprintf("Failed, reporting as an escape\n");
         escape_set();
         r->r[9] = ReadLineV_ClaimCSet;
         r->r[1] = 0;
