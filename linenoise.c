@@ -1015,8 +1015,24 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
                 if (read(l->ifd,seq+2,1) == -1) break;
                 if (seq[2] == '~') {
                     switch(seq[1]) {
+                    case '1': /* Home key. */
+                        linenoiseEditMoveHome(l);
+                        break;
+                    
                     case '3': /* Delete key. */
                         linenoiseEditDelete(l);
+                        break;
+
+                    case '4': /* End key. */
+                        linenoiseEditMoveEnd(l);
+                        break;
+                    
+                    case '7': /* Home key. */
+                        linenoiseEditMoveHome(l);
+                        break;
+                    
+                    case '8': /* End key. */
+                        linenoiseEditMoveEnd(l);
                         break;
                     }
                 }
