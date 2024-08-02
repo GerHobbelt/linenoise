@@ -932,7 +932,7 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
 
     char c;
     int nread;
-    char seq[3];
+    char seq[10];
 
     nread = read(l->ifd,&c,1);
     if (nread <= 0) return NULL;
@@ -966,7 +966,7 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
         errno = EAGAIN;
         return NULL;
     case BACKSPACE:   /* backspace */
-    case 8:     /* ctrl-h */
+    case CTRL_H:     /* ctrl-h */
         linenoiseEditBackspace(l);
         break;
     case CTRL_D:     /* ctrl-d, remove char at right of cursor, or if the
@@ -1033,6 +1033,40 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
                     
                     case '8': /* End key. */
                         linenoiseEditMoveEnd(l);
+                        break;
+                    }
+                /* Sequence with modifiers, read more bytes. */
+                } else if (seq[2] == ';') {                  
+                    if (read(l->ifd,seq+3,2) == -1) break;
+                    switch (seq[4]) {
+                    case 'A':
+                        if (seq[3] == '0'+0b0101) {
+                            // oldest command in history
+                        }
+                        break;
+                    case 'B':
+                        if (seq[3] == '0'+0b0101) {
+                            // latest command in history
+                        }
+                        break;
+                    
+                    case 'C':
+                        if (seq[3] == '0'+0b0101) {
+                            while (l->buf[l->pos] == ' ')
+                                linenoiseEditMoveRight(l);
+                            while (l->pos != l->len && l->buf[l->pos] != ' ')
+                                linenoiseEditMoveRight(l);
+                        }
+                        break;
+                    
+                    case 'D':
+                        if (seq[3] == '0'+0b0101) {
+                            linenoiseEditMoveLeft(l);
+                            while (l->buf[l->pos] == ' ' || l->buf[l->pos] == '\0')
+                                linenoiseEditMoveLeft(l);
+                            while (l->pos != 0 && l->buf[l->pos-1] != ' ')
+                                linenoiseEditMoveLeft(l);
+                        }
                         break;
                     }
                 }
