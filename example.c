@@ -43,6 +43,11 @@ char *hints(const char *buf, int *color, int *bold) {
     return NULL;
 }
 
+
+#if defined(BUILD_MONOLITHIC)
+#define main      linenoise_example_main
+#endif
+
 int main(int argc, const char **argv) {
     char *line;
     const char *prgname = argv[0];
