@@ -598,8 +598,7 @@ static void freeCompletions(linenoiseCompletions *lc) {
     size_t i;
     for (i = 0; i < lc->len; i++)
         free(lc->cvec[i]);
-    if (lc->cvec != NULL)
-        free(lc->cvec);
+    free(lc->cvec);
 }
 
 /* Called by completeLine() and linenoiseShow() to render the current
@@ -1526,7 +1525,7 @@ static char *linenoiseNoTTY(void) {
             char *oldval = line;
             line = realloc(line,maxlen);
             if (line == NULL) {
-                if (oldval) free(oldval);
+                free(oldval);
                 return NULL;
             }
         }
