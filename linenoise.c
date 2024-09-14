@@ -108,6 +108,7 @@
 #include <sys/ioctl.h>
 #else
 #include <windows.h>
+#include <io.h>
 #endif
 #include <stdlib.h>
 #include <stdio.h>
@@ -338,8 +339,12 @@ static size_t defaultNextCharLen(const char *buf, size_t buf_len, size_t pos, si
 /* Read bytes of the next character */
 static size_t defaultReadCode(int fd, char *buf, size_t buf_len, int* c) {
     if (buf_len < 1) return -1;
-    int nread = read(fd,&buf[0],1);
-    if (nread == 1) *c = buf[0];
+#ifndef _WIN32
+		int nread = read(fd,&buf[0],1);
+#else
+		int nread = win32read(fd, &buf[0]);
+#endif
+		if (nread == 1) *c = buf[0];
     return nread;
 }
 
@@ -1240,11 +1245,7 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
     int nread;
     char cbuf[32]; // large enough for any encoding?
     char seq[10];
-#ifndef _WIN32
     nread = readCode(l->ifd,cbuf,sizeof(cbuf),&c);
-#else
-    nread = win32read(l->ifd, &c);
-#endif
     if (nread <= 0) {
         perror("read");
         return NULL;

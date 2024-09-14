@@ -5,6 +5,7 @@
 #include <sys/select.h>
 #else
 #include <windows.h>
+#define strcasecmp(a, b)		stricmp(a, b)
 #endif
 #include "linenoise.h"
 
@@ -41,9 +42,9 @@ char *hints(const char *buf, int *color, int *bold) {
     return NULL;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, const char **argv) {
     char *line;
-    char *prgname = argv[0];
+    const char *prgname = argv[0];
     int async = 0;
 
     /* Parse options, with --multiline we enable multi line editing. */

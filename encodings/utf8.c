@@ -41,7 +41,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _WIN32
 #include <unistd.h>
+#else
+#include <windows.h>
+#include <io.h>
+#endif
 #include <stdio.h>
 
 #define UNUSED(x) (void)(x)
