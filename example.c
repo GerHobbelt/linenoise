@@ -78,7 +78,7 @@ static int foundhelp(const char *buf, size_t len, char c) {
 #define main      linenoise_example_main
 #endif
 
-int main(void) {
+int main(int argc, const char **argv) {
     char *line;
 
 #ifndef NO_COMPLETION
