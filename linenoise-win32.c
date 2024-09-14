@@ -63,10 +63,6 @@ static int enableRawMode(struct current *current) {
     if (GetConsoleMode(current->inh, &orig_consolemode)) {
         SetConsoleMode(current->inh, ENABLE_PROCESSED_INPUT);
     }
-#ifdef USE_UTF8
-    /* XXX is this the right thing to do? */
-    SetConsoleCP(65001);
-#endif
     return 0;
 }
 
@@ -313,49 +309,69 @@ static void cursorDown(struct current *current, int n)
 
 static int fd_read(struct current *current)
 {
+    DWORD n;
+    INPUT_RECORD irec;
+    KEY_EVENT_RECORD evrec;
+    BOOL altgr;
+
     while (1) {
-        INPUT_RECORD irec;
-        DWORD n;
-        if (WaitForSingleObject(current->inh, INFINITE) != WAIT_OBJECT_0) {
-            break;
-        }
-        if (!ReadConsoleInputW(current->inh, &irec, 1, &n)) {
-            break;
-        }
-        if (irec.EventType == KEY_EVENT) {
-            KEY_EVENT_RECORD *k = &irec.Event.KeyEvent;
-            if (k->bKeyDown || k->wVirtualKeyCode == VK_MENU) {
-                if (k->dwControlKeyState & ENHANCED_KEY) {
-                    switch (k->wVirtualKeyCode) {
-                     case VK_LEFT:
-                        return SPECIAL_LEFT;
-                     case VK_RIGHT:
-                        return SPECIAL_RIGHT;
-                     case VK_UP:
-                        return SPECIAL_UP;
-                     case VK_DOWN:
-                        return SPECIAL_DOWN;
-                     case VK_INSERT:
-                        return SPECIAL_INSERT;
-                     case VK_DELETE:
-                        return SPECIAL_DELETE;
-                     case VK_HOME:
-                        return SPECIAL_HOME;
-                     case VK_END:
-                        return SPECIAL_END;
-                     case VK_PRIOR:
-                        return SPECIAL_PAGE_UP;
-                     case VK_NEXT:
-                        return SPECIAL_PAGE_DOWN;
-                     case VK_RETURN:
-                        return k->uChar.UnicodeChar;
-                    }
+        if (WaitForSingleObject(current->inh, INFINITE) != WAIT_OBJECT_0) return -1;
+        if (!ReadConsoleInputW(current->inh, &irec, 1, &n)) return -1;
+        if (!n) return 0;
+
+        if (irec.EventType == KEY_EVENT && irec.Event.KeyEvent.bKeyDown) {
+            evrec = irec.Event.KeyEvent;
+            altgr = evrec.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_ALT_PRESSED);
+
+            if (evrec.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) && !altgr) {
+
+                /* Ctrl+Key */
+                switch (evrec.uChar.UnicodeChar) {
+                case 'I':
+                case 'M':
+                case 'O':
+                case 'Q':
+                case 'S':
+                case 'X': /* These are unsupported */
+                    break;
+                default:
+                    if (evrec.uChar.UnicodeChar >= 'A' && evrec.uChar.UnicodeChar <= 'Z')
+                        return ctrl(evrec.uChar.UnicodeChar);
                 }
-                /* Note that control characters are already translated in AsciiChar */
-                else if (k->wVirtualKeyCode == VK_CONTROL)
-                    continue;
-                else {
-                    return k->uChar.UnicodeChar;
+            }
+            else {
+                switch (evrec.wVirtualKeyCode) {
+                case VK_RETURN:
+                    return '\n';
+                case VK_ESCAPE:
+                    return SPECIAL_ESCAPE;
+                case VK_LEFT:
+                    return SPECIAL_LEFT;
+                case VK_RIGHT:
+                    return SPECIAL_RIGHT;
+                case VK_UP:
+                    return SPECIAL_UP;
+                case VK_DOWN:
+                    return SPECIAL_DOWN;
+                case VK_BACK:
+                    return SPECIAL_BACKSPACE;
+                case VK_INSERT:
+                    return SPECIAL_INSERT;
+                case VK_DELETE:
+                    return SPECIAL_DELETE;
+                case VK_HOME:
+                    return SPECIAL_HOME;
+                case VK_END:
+                    return SPECIAL_END;
+                case VK_PRIOR:
+                    return SPECIAL_PAGE_UP;
+                case VK_NEXT:
+                    return SPECIAL_PAGE_DOWN;
+                default:
+#ifndef USE_UTF8
+                    if (isascii(evrec.uChar.UnicodeChar))
+#endif
+                        return evrec.uChar.UnicodeChar;
                 }
             }
         }
