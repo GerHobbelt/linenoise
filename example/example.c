@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/select.h>
+#else
+#include <windows.h>
+#endif
 #include "linenoise.h"
 
 #define UTF8
@@ -24,7 +28,7 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 }
 
 char *hints(const char *buf, int *color, int *bold) {
-    if (!strcasecmp(buf,"hello")) {
+    if (!strcmp(buf,"hello")) {
         *color = 35;
         *bold = 0;
         return " World";
