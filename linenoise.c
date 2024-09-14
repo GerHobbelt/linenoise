@@ -5,6 +5,7 @@
  *
  *   http://github.com/msteveb/linenoise
  *   (forked from http://github.com/antirez/linenoise)
+ *   (merged with a number of other linenoise forks)
  *
  * Does a number of crazy assumptions that happen to be true in 99.9999% of
  * the 2010 UNIX computers around.
@@ -14,6 +15,7 @@
  * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  * Copyright (c) 2011, Steve Bennett <steveb at workware dot net dot au>
+ * Copyright (c) 2011, Alan DeKok <aland at freeradius dot org>
  *
  * All rights reserved.
  *
@@ -154,6 +156,8 @@
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 
 #define TAB_WIDTH 8
+
+static linenoiseCharacterCallback *characterCallback[256] = { NULL };
 
 /* ctrl('A') -> 0x01 */
 #define ctrl(C) ((C) - '@')
@@ -369,6 +373,7 @@ static void DRL_STR(const char *str)
 #endif
 
 #if defined(USE_WINCONSOLE)
+#define DEFINING_WINCONSOLE 1
 #include "linenoise-win32.c"
 #endif
 
@@ -819,7 +824,7 @@ static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
 static void *hintsUserdata = NULL;
 
-static void beep() {
+static void beep(void) {
 #ifdef USE_TERMIOS
     fprintf(stderr, "\x7");
     fflush(stderr);
@@ -1843,7 +1848,16 @@ static int linenoiseEdit(struct current *current) {
                 /* Don't insert meta chars that are not bound */
                 break;
             }
-            /* Only tab is allowed without ^V */
+
+						if (characterCallback[c]) {
+							int rcode = characterCallback[c](current->buf, current->pos, c);
+							refreshLine(current);
+							if (rcode == 1) {
+								continue;
+							}
+						}
+
+						/* Only tab is allowed without ^V */
             if (c == '\t' || c >= ' ') {
                 if (insert_char(current, current->pos, c) == 1) {
                     refreshLine(current);
@@ -1945,6 +1959,13 @@ char *linenoiseWithInitial(const char *prompt, const char *initial)
 char *linenoise(const char *prompt)
 {
     return linenoiseWithInitial(prompt, "");
+}
+
+/* Register a callback function to be called when a character is pressed */
+void linenoiseSetCharacterCallback(linenoiseCharacterCallback *fn, char c) {
+    if (c < ' ') return;
+
+    characterCallback[c] = fn;
 }
 
 /* Using a circular buffer is smarter, but a bit more complex to handle. */

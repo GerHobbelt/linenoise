@@ -37,6 +37,8 @@
 #ifndef __LINENOISE_H
 #define __LINENOISE_H
 
+#include "stringbuf.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -70,6 +72,9 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *callback, void *userdata)
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *callback);
 
 #endif
+
+typedef int (linenoiseCharacterCallback)(stringbuf *buf, int pos, char ch);
+void linenoiseSetCharacterCallback(linenoiseCharacterCallback *callback, char ch);
 
 /*
  * Prompts for input using the given string as the input

@@ -1,10 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#define strcasecmp(a, b) stricmp(a,b)
+#endif
+
 #include "linenoise.h"
 
+#include "monolithic_examples.h"
+
 #ifndef NO_COMPLETION
-void completion(const char *buf, linenoiseCompletions *lc, void *userdata) {
+
+static void completion(const char *buf, linenoiseCompletions *lc, void *userdata) {
     (void)userdata;
     if (buf[0] == 'h') {
         linenoiseAddCompletion(lc,"hello");
@@ -12,7 +19,7 @@ void completion(const char *buf, linenoiseCompletions *lc, void *userdata) {
     }
 }
 
-char *hints(const char *buf, int *color, int *bold, void *userdata) {
+static char *hints(const char *buf, int *color, int *bold, void *userdata) {
     (void)userdata;
     if (!strcasecmp(buf,"hello")) {
         *color = 35;
@@ -21,12 +28,76 @@ char *hints(const char *buf, int *color, int *bold, void *userdata) {
     }
     return NULL;
 }
+
 #endif
 
-int main(int argc, char *argv[]) {
+
+static int in_string = 0;
+static size_t string_start = 0;
+
+static void reset_string_mode(void) {
+	in_string = 0;
+	string_start = 0;
+}
+
+static int foundspace(stringbuf *buf, int pos, char c) {
+    if (in_string) return 0;
+
+    if (buf->last == 0) return 1;
+
+    if (buf->data[buf->last -1] == c) return 1;
+
+    printf("\r\nSPACE!\r\n");
+    return 0;
+}
+
+static int escapedquote(const char *start)
+{
+    while (*start) {
+        if (*start == '\\') {
+	    if (!start[1]) return 1;
+	    start += 2;
+	}
+	start++;
+    }
+    return 0;
+}
+
+
+static int foundquote(stringbuf *buf, int pos, char c) {
+    if (!in_string) {
+        in_string = 1;
+	string_start = buf->last;
+	return 0;
+    }
+
+    if (buf->data[string_start] != c) return 0;
+
+    if (escapedquote(buf->data + string_start)) return 0;
+
+    in_string = 0;
+    printf("\r\nSTRING %s%c\r\n", buf->data + string_start, buf->data[string_start]);
+    string_start = 0;
+
+    return 0;
+}
+
+static int foundhelp(stringbuf *buf, int pos, char c) {
+    if (in_string) return 0;
+
+    printf("?\r\nHELP: %s\r\n", buf->data);
+    return 1;
+}
+
+
+#if defined(BUILD_MONOLITHIC)
+#define main      linenoise_example_main
+#endif
+
+int main(int argc, const char **argv) {
     const char *prompt = "hello> ";
     char *line;
-    char *prgname = argv[0];
+    const char *prgname = argv[0];
 	const char *initial;
 
     /* Parse options, with --multiline we enable multi line editing. */
@@ -58,6 +129,10 @@ int main(int argc, char *argv[]) {
     /* Load history from file. The history file is just a plain text file
      * where entries are separated by newlines. */
     linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
+    linenoiseSetCharacterCallback(foundspace, ' ');
+    linenoiseSetCharacterCallback(foundquote, '"');
+    linenoiseSetCharacterCallback(foundquote, '\'');
+    linenoiseSetCharacterCallback(foundhelp, '?');
 
 	initial = (argc > 1) ? argv[1] : "";
 
@@ -69,6 +144,7 @@ int main(int argc, char *argv[]) {
      * linenoise, so the user needs to free() it. */
     while((line = linenoiseWithInitial(prompt, initial)) != NULL) {
 		initial = "";
+		reset_string_mode();
         /* Do something with the string. */
         if (line[0] != '\0' && line[0] != '/') {
             printf("echo: '%s'\n", line);
