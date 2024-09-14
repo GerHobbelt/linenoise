@@ -1,4 +1,6 @@
 
+#ifdef DEFINING_WINCONSOLE 
+
 /* this code is not standalone
  * it is included into linenoise.c
  * for windows.
@@ -377,3 +379,5 @@ static int getWindowSize(struct current *current)
     current->x = info.dwCursorPosition.X;
     return 0;
 }
+
+#endif

@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#define strcasecmp(a, b) stricmp(a,b)
+#endif
+
 #include "linenoise.h"
 
 #ifndef NO_COMPLETION
@@ -23,10 +27,10 @@ char *hints(const char *buf, int *color, int *bold, void *userdata) {
 }
 #endif
 
-int main(int argc, char *argv[]) {
+int main(int argc, const char **argv) {
     const char *prompt = "hello> ";
     char *line;
-    char *prgname = argv[0];
+    const char *prgname = argv[0];
 	const char *initial;
 
     /* Parse options, with --multiline we enable multi line editing. */

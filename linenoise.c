@@ -368,6 +368,7 @@ static void DRL_STR(const char *str)
 #endif
 
 #if defined(USE_WINCONSOLE)
+#define DEFINING_WINCONSOLE 1
 #include "linenoise-win32.c"
 #endif
 
