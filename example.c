@@ -2,10 +2,18 @@
 #include <stdlib.h>
 #include <string.h>
 #if defined(_WIN32)
-#define strcasecmp(a, b) stricmp(a,b)
+// as per https://stackoverflow.com/questions/15826188/what-most-correct-way-to-set-the-encoding-in-c
+// see also https://github.com/microsoft/terminal/issues/13680 
+#include <windows.h>
+
+#define strcasecmp(a, b) stricmp(a, b)
 #endif
 
 #include "linenoise.h"
+
+#if 0		// UTF8 console on Win32 is still b0rked...
+#define UTF8
+#endif
 
 #include "monolithic_examples.h"
 
@@ -14,8 +22,14 @@
 static void completion(const char *buf, linenoiseCompletions *lc, void *userdata) {
     (void)userdata;
     if (buf[0] == 'h') {
+#ifdef UTF8
+        linenoiseAddCompletion(lc,"hello こんにちは");
+        linenoiseAddCompletion(lc,"hello こんにちは there");
+        linenoiseAddCompletion(lc,"hello こんにちは 👨‍💻");
+#else
         linenoiseAddCompletion(lc,"hello");
         linenoiseAddCompletion(lc,"hello there");
+#endif
     }
 }
 
@@ -26,7 +40,14 @@ static char *hints(const char *buf, int *color, int *bold, void *userdata) {
         *bold = 0;
         return " World";
     }
-    return NULL;
+#ifdef UTF8
+    if (!strcasecmp(buf, "こんにちは")) {
+        *color = 35;
+        *bold = 0;
+        return " 世界";
+    }
+#endif
+		return NULL;
 }
 
 #endif
@@ -40,7 +61,7 @@ static void reset_string_mode(void) {
 	string_start = 0;
 }
 
-static int foundspace(stringbuf *buf, int pos, char c) {
+static int foundspace(stringbuf *buf, int pos, int c) {
     if (in_string) return 0;
 
     if (buf->last == 0) return 1;
@@ -64,11 +85,11 @@ static int escapedquote(const char *start)
 }
 
 
-static int foundquote(stringbuf *buf, int pos, char c) {
+static int foundquote(stringbuf *buf, int pos, int c) {
     if (!in_string) {
         in_string = 1;
-	string_start = buf->last;
-	return 0;
+        string_start = buf->last;
+        return 0;
     }
 
     if (buf->data[string_start] != c) return 0;
@@ -82,7 +103,7 @@ static int foundquote(stringbuf *buf, int pos, char c) {
     return 0;
 }
 
-static int foundhelp(stringbuf *buf, int pos, char c) {
+static int foundhelp(stringbuf *buf, int pos, int c) {
     if (in_string) return 0;
 
     printf("?\r\nHELP: %s\r\n", buf->data);
@@ -95,10 +116,20 @@ static int foundhelp(stringbuf *buf, int pos, char c) {
 #endif
 
 int main(int argc, const char **argv) {
-    const char *prompt = "hello> ";
-    char *line;
+#ifdef UTF8
+    const char* prompt = "hello😊Яあ🐈> ";
+#else
+    const char* prompt = "hello> ";
+#endif
+	char* line;
     const char *prgname = argv[0];
 	const char *initial;
+
+	// SetConsoleModeToUTF8:
+#if defined(_WIN32) || defined(_WIN64)
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+#endif
 
     /* Parse options, with --multiline we enable multi line editing. */
     while(argc > 1 && argv[1][0] == '-') {
@@ -107,6 +138,9 @@ int main(int argc, const char **argv) {
         if (!strcmp(*argv,"--multiline")) {
             linenoiseSetMultiLine(1);
             printf("Multi-line mode enabled.\n");
+        } else if (!strcmp(*argv,"--keycodes")) {
+            linenoisePrintKeyCodes();
+            return 0;
         } else if (!strcmp(*argv,"--fancyprompt")) {
             prompt = "\x1b[1;31m\xf0\xa0\x8a\x9d-\xc2\xb5hello>\x1b[0m ";
         } else if (!strcmp(*argv,"--prompt") && argc > 1) {
@@ -114,7 +148,7 @@ int main(int argc, const char **argv) {
             argv++;
             prompt = *argv;
         } else {
-            fprintf(stderr, "Usage: %s [--multiline] [--fancyprompt] [--prompt text]\n", prgname);
+            fprintf(stderr, "Usage: %s [--multiline] [--keycodes] [--fancyprompt] [--prompt text]\n", prgname);
             exit(1);
         }
     }
@@ -154,8 +188,12 @@ int main(int argc, const char **argv) {
             /* The "/historylen" command will change the history len. */
             int len = atoi(line+11);
             linenoiseHistorySetMaxLen(len);
+        } else if (!strncmp(line, "/mask", 5)) {
+            //linenoiseMaskModeEnable();
+        } else if (!strncmp(line, "/unmask", 7)) {
+            //linenoiseMaskModeDisable();
         } else if (line[0] == '/') {
-            printf("Unreconized command: %s\n", line);
+            printf("Unrecognized command: %s\n", line);
         }
         free(line);
     }

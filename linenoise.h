@@ -75,11 +75,8 @@ void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *callback);
 
 #endif
 
-typedef int (linenoiseCharacterCallback)(stringbuf *buf, int pos, char ch);
-void linenoiseSetCharacterCallback(linenoiseCharacterCallback *callback, char ch);
-
-typedef const char *(linenoiseHistoryCallback)(const char *);
-void linenoiseSetHistoryCallback(linenoiseHistoryCallback *callback);
+typedef int (linenoiseCharacterCallback)(stringbuf *buf, int pos, int ch);
+void linenoiseSetCharacterCallback(linenoiseCharacterCallback *callback, int ch);
 
 /*
  * Prompts for input using the given string as the input
@@ -151,6 +148,8 @@ int linenoiseColumns(void);
  * Enable or disable multiline mode (disabled by default)
  */
 void linenoiseSetMultiLine(int enableml);
+
+void linenoisePrintKeyCodes(void);
 
 #ifdef __cplusplus
 }

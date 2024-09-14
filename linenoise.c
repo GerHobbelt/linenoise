@@ -12,8 +12,8 @@
  *
  * ------------------------------------------------------------------------
  *
- * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2010-2023, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  * Copyright (c) 2011, Steve Bennett <steveb at workware dot net dot au>
  * Copyright (c) 2011, Alan DeKok <aland at freeradius dot org>
  *
@@ -128,6 +128,11 @@
 #if !defined(snprintf)
 #define snprintf _snprintf
 #endif
+#ifndef STDIN_FILENO
+#define STDIN_FILENO _fileno(stdin)
+#define STDOUT_FILENO _fileno(stdout)
+#define STDERR_FILENO _fileno(stderr)
+#endif
 #endif
 #else
 #include <termios.h>
@@ -197,8 +202,6 @@ static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static int history_index = 0;
 static char **history = NULL;
-
-static linenoiseHistoryCallback *historyCallback = NULL;
 
 /* Structure to contain the status of the current (being edited) line */
 struct current {
@@ -398,6 +401,8 @@ static int atexit_registered = 0; /* register atexit just 1 time */
 
 static const char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 
+/* Return true if the terminal name is in the list of terminals we know are
+ * not able to understand basic escape sequences. */
 static int isUnsupportedTerm(void) {
     char *term = getenv("TERM");
 
@@ -434,13 +439,30 @@ fatal:
     /* input modes: no break, no CR to NL, no parity check, no strip char,
      * no start/stop output control. */
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    /* output modes - actually, no need to disable post processing */
-    /*raw.c_oflag &= ~(OPOST);*/
+
+    /*
+     *  disable post processing will cause funky output in multi-threading environ
+     *
+     *  example:
+     *  ```
+     *  printf("this is line one\n")
+     *  printf("this is line two\n")
+     *  ```
+     *
+     *  output:
+     *  this is line one
+     *                  this is line two
+     *
+     *  so, we should not disable post processing
+     */
+
+    /* output modes - disable post processing */
+    /* raw.c_oflag &= ~(OPOST); */
     /* control modes - set 8 bit chars */
     raw.c_cflag |= (CS8);
-    /* local modes - choing off, canonical off, no extended functions,
+    /* local modes - echoing off, canonical off, no extended functions,
      * no signal chars (^Z,^C) */
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN) | ISIG;
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
     /* control chars - set return condition: min number of bytes and timer.
      * We want read to return every single byte, without timeout. */
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
@@ -846,6 +868,9 @@ static void beep(void) {
 #endif
 }
 
+/* ============================== Completion ================================ */
+
+/* Free a list of completion option populated by linenoiseAddCompletion(). */
 static void freeCompletions(linenoiseCompletions *lc) {
     size_t i;
     for (i = 0; i < lc->len; i++)
@@ -853,6 +878,21 @@ static void freeCompletions(linenoiseCompletions *lc) {
     free(lc->cvec);
 }
 
+
+/* This is an helper function for linenoiseEdit*() and is called when the
+ * user types the <tab> key in order to complete the string currently in the
+ * input.
+ *
+ * The state of the editing is encapsulated into the pointed linenoiseState
+ * structure as described in the structure definition.
+ *
+ * If the function returns non-zero, the caller should handle the
+ * returned value as a byte read from the standard input, and process
+ * it as usually: this basically means that the function may return a byte
+ * read from the termianl but not processed. Otherwise, if zero is returned,
+ * the input was consumed by the completeLine() function to navigate the
+ * possible completions, and the caller should read for the next characters
+ * from stdin. */
 static int completeLine(struct current *current) {
     linenoiseCompletions lc = { 0, NULL };
     int c = 0;
@@ -914,17 +954,25 @@ linenoiseCompletionCallback * linenoiseSetCompletionCallback(linenoiseCompletion
     return old;
 }
 
+/* This function is used by the callback function registered by the user
+ * in order to add completion options given the input string when the
+ * user typed <tab>. See the example.c source code for a very easy to
+ * understand example. */
 void linenoiseAddCompletion(linenoiseCompletions *lc, const char *str) {
     lc->cvec = (char **)realloc(lc->cvec,sizeof(char*)*(lc->len+1));
     lc->cvec[lc->len++] = strdup(str);
 }
 
+/* Register a hits function to be called to show hits to the user at the
+ * right of the prompt. */
 void linenoiseSetHintsCallback(linenoiseHintsCallback *callback, void *userdata)
 {
     hintsCallback = callback;
     hintsUserdata = userdata;
 }
 
+/* Register a function to free the hints returned by the hints callback
+ * registered with linenoiseSetHintsCallback(). */
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *callback)
 {
     freeHintsCallback = callback;
@@ -1377,7 +1425,6 @@ static int remove_char(struct current *current, int pos)
             }
         }
         return rc;
-        return 1;
     }
     return 0;
 }
@@ -1864,7 +1911,7 @@ static int linenoiseEdit(struct current *current) {
                 break;
             }
 
-						if (characterCallback[c]) {
+						if (c >= ' ' && c < 256 && characterCallback[c]) {
 							int rcode = characterCallback[c](current->buf, current->pos, c);
 							refreshLine(current);
 							if (rcode == 1) {
@@ -1886,7 +1933,7 @@ static int linenoiseEdit(struct current *current) {
 
 int linenoiseColumns(void)
 {
-    struct current current;
+    struct current current = {0};
     current.output = NULL;
     enableRawMode (&current);
     getWindowSize (&current);
@@ -1927,6 +1974,32 @@ static stringbuf *sb_getline(FILE *fh)
         return NULL;
     }
     return sb;
+}
+
+/* This special mode is used by linenoise in order to print scan codes
+ * on screen for debugging / development purposes. It is implemented
+ * by the linenoise_example program using the --keycodes option. */
+void linenoisePrintKeyCodes(void) {
+    struct current current = {0};
+    char quit[4];
+
+    printf("Linenoise key codes debugging mode.\n"
+            "Press keys to see scan codes. Type 'quit' at any time to exit.\n");
+    if (enableRawMode(&current) == -1) return;
+    memset(quit,' ',4);
+    while(1) {
+        char c = fd_read(&current);
+        if (c == 0) continue;
+        memmove(quit,quit+1,sizeof(quit)-1); /* shift string to left. */
+        quit[sizeof(quit)-1] = c; /* Insert current char on the right. */
+        if (memcmp(quit,"quit",sizeof(quit)) == 0) break;
+
+        printf("'%c' %02x (%d) (type quit to exit)\n",
+            isprint((int)c) ? c : '?', (int)c, (int)c);
+        printf("\r"); /* Go left edge manually, we are in raw mode. */
+        fflush(stdout);
+    }
+    disableRawMode(&current);
 }
 
 char *linenoiseWithInitial(const char *prompt, const char *initial)
@@ -1977,8 +2050,8 @@ char *linenoise(const char *prompt)
 }
 
 /* Register a callback function to be called when a character is pressed */
-void linenoiseSetCharacterCallback(linenoiseCharacterCallback *fn, char c) {
-    if (c < ' ') return;
+void linenoiseSetCharacterCallback(linenoiseCharacterCallback *fn, int c) {
+    if (c < ' ' || c >= 256) return;
 
     characterCallback[c] = fn;
 }
@@ -1991,8 +2064,14 @@ notinserted:
         free(line);
         return 0;
     }
+
+    if (line == NULL)
+        goto notinserted;
+
     if (history == NULL) {
         history = (char **)calloc(sizeof(char*), history_max_len);
+        if (history == NULL)
+            goto notinserted;
     }
 
     /* do not insert duplicate lines into history */
@@ -2010,6 +2089,13 @@ notinserted:
     return 1;
 }
 
+/* This is the API call to add a new entry in the linenoise history.
+ * It uses a fixed array of char pointers that are shifted (memmoved)
+ * when the history max length is reached in order to remove the older
+ * entry and make room for the new one, so it is not exactly suitable for huge
+ * histories, but will work well for a few hundred of entries.
+ *
+ * Using a circular buffer is smarter, but a bit more complex to handle. */
 int linenoiseHistoryAdd(const char *line) {
     return linenoiseHistoryAddAllocated(strdup(line));
 }
@@ -2134,9 +2220,4 @@ char **linenoiseHistory(int *len) {
         *len = history_len;
     }
     return history;
-}
-
-void linenoiseSetHistoryCallback(linenoiseHistoryCallback *fn)
-{
-	historyCallback = fn;
 }
