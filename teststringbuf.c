@@ -30,6 +30,10 @@ static void validate_buf_(const char *file, int line, stringbuf *sb, const char 
 	sb_free(sb);
 }
 
+#if defined(BUILD_MONOLITHIC)
+#define main      linenoise_test_stringbuf_main
+#endif
+
 int main(void)
 {
 	stringbuf *sb;

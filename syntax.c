@@ -4,11 +4,27 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#ifdef _WIN32 /* Windows platform, either MinGW or Visual Studio (MSVC) */
+#include <windows.h>
+#include <fcntl.h>
+#define USE_WINCONSOLE
+#ifdef __MINGW32__
+#define HAVE_UNISTD_H
+#endif
+#else
+#include <termios.h>
+#include <sys/ioctl.h>
+#define USE_TERMIOS
+#define HAVE_UNISTD_H
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <ctype.h>
-#include <unistd.h>
 
 #include "syntax.h"
 
@@ -173,9 +189,9 @@ void UpdateRow(erow *row)
         if (row->chars[j] == TAB)
             tabs++;
 
-    unsigned long long allocsize =
-        (unsigned long long)row->size + tabs * 8 + nonprint * 9 + 1;
-    if (allocsize > UINT32_MAX)
+    uint64_t allocsize = (uint64_t)row->size;
+		allocsize += tabs * 8 + nonprint * 9 + 1;
+    if (allocsize > (uint64_t)UINT32_MAX)
     {
         printf("line is too long to be rendered\n");
         exit(1);

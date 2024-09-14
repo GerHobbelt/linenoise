@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if !defined(_WIN32)
+
 #include <tcl.h>
 #include <tk.h>
 #include "linenoise.h"
@@ -125,3 +128,5 @@ Linenoise_Init(Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "clearscreen", ClearScreen_Cmd, NULL, NULL);
     return TCL_OK;
 }
+
+#endif

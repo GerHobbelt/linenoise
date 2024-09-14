@@ -5,13 +5,11 @@
  *
  * (c) 2017-2020 Steve Bennett <steveb@workware.net.au>
  *
- * See utf8.c for licence details.
+ * See utf8.c for license details.
  */
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <unistd.h>
 
 #define HL_NONPRINT 0   /* Non printable character */
 #define HL_NORMAL 37    /* White */
