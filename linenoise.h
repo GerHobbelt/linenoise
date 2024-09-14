@@ -36,8 +36,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __LINENOISE_H
-#define __LINENOISE_H
+#ifndef LINENOISE_H
+#define LINENOISE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -120,4 +120,4 @@ void linenoiseSetEncodingFunctions(
 }
 #endif
 
-#endif /* __LINENOISE_H */
+#endif /* LINENOISE_H */
