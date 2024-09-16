@@ -125,10 +125,12 @@ int main(int argc, const char **argv) {
     const char *prgname = argv[0];
 	const char *initial;
 
-	// SetConsoleModeToUTF8:
+#ifdef UTF8
+    // SetConsoleModeToUTF8:
 #if defined(_WIN32) || defined(_WIN64)
     SetConsoleCP(CP_UTF8);
     SetConsoleOutputCP(CP_UTF8);
+#endif
 #endif
 
     /* Parse options, with --multiline we enable multi line editing. */
